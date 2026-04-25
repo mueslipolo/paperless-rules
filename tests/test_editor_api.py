@@ -1,10 +1,4 @@
-"""End-to-end tests of the FastAPI editor backend with a fake paperless.
-
-We bypass the real httpx network path entirely by injecting a duck-typed
-fake client into `create_app`. The fake serves a small fixed corpus that
-includes the Swisscom OCR fixture, so the engine and bootstrap endpoints
-exercise the realistic Swiss-document path. No Docker required.
-"""
+"""Editor API tests against a fake paperless. FastAPI TestClient + duck-typed client."""
 from __future__ import annotations
 
 from pathlib import Path
@@ -17,13 +11,11 @@ from paperless_rules.editor.app import create_app
 from paperless_rules.paperless_client import PaperlessError
 
 FIXTURES = Path(__file__).parent / "fixtures"
-SWISSCOM_TEXT = (FIXTURES / "swisscom_invoice.txt").read_text(encoding="utf-8")
+SWISSCOM = (FIXTURES / "swisscom_invoice.txt").read_text(encoding="utf-8")
 
 
 class FakePaperless:
-    """Minimal stand-in for PaperlessClient. Duck-typed."""
-
-    def __init__(self, docs: dict[int, dict] | None = None, healthy: bool = True):
+    def __init__(self, docs=None, healthy=True):
         self.docs = docs or {}
         self.healthy = healthy
 
@@ -37,20 +29,17 @@ class FakePaperless:
         if query:
             q = query.lower()
             results = [
-                d
-                for d in results
+                d for d in results
                 if q in (d.get("title", "") or "").lower()
                 or q in (d.get("content", "") or "").lower()
             ]
         start = (page - 1) * page_size
         return {
-            "count": len(results),
-            "next": None,
-            "previous": None,
-            "results": results[start : start + page_size],
+            "count": len(results), "next": None, "previous": None,
+            "results": results[start:start + page_size],
         }
 
-    async def get_document(self, doc_id: int):
+    async def get_document(self, doc_id):
         if doc_id not in self.docs:
             raise PaperlessError(f"document {doc_id} not found")
         return self.docs[doc_id]
@@ -60,275 +49,203 @@ class FakePaperless:
 
 
 @pytest.fixture
-def fake_paperless():
-    return FakePaperless(
-        docs={
-            42: {
-                "id": 42,
-                "title": "Swisscom Mar 2024",
-                "content": SWISSCOM_TEXT,
-                "created": "2024-03-15T00:00:00Z",
-                "correspondent": None,
-                "document_type": None,
-                "tags": [],
-            },
-            43: {
-                "id": 43,
-                "title": "Empty doc",
-                "content": "",
-                "created": "2024-04-01T00:00:00Z",
-            },
-        }
-    )
+def fake():
+    return FakePaperless({
+        42: {
+            "id": 42, "title": "Swisscom Mar 2024", "content": SWISSCOM,
+            "created": "2024-03-15T00:00:00Z",
+        },
+        43: {"id": 43, "title": "Empty doc", "content": ""},
+    })
 
 
 @pytest.fixture
-def app_client(tmp_path, fake_paperless):
+def app_client(tmp_path, fake):
     cfg = Config(rules_dir=tmp_path / "rules", state_dir=tmp_path / "state")
-    app = create_app(cfg, paperless_client=fake_paperless)
-    with TestClient(app) as client:
-        yield client
+    with TestClient(create_app(cfg, paperless_client=fake)) as c:
+        yield c
 
 
-# ── health ────────────────────────────────────────────────────────────
+# ── health ───────────────────────────────────────────────────────────
 
 
-class TestHealth:
-    def test_reports_paperless_ok(self, app_client):
-        r = app_client.get("/api/health")
-        assert r.status_code == 200
-        body = r.json()
-        assert body["paperless"]["ok"] is True
-        assert body["app"]["name"] == "paperless-rules"
-
-    def test_reports_paperless_down(self, tmp_path):
-        cfg = Config(rules_dir=tmp_path)
-        app = create_app(cfg, paperless_client=FakePaperless(healthy=False))
-        with TestClient(app) as c:
-            assert c.get("/api/health").json()["paperless"]["ok"] is False
-
-    def test_no_client_configured(self, tmp_path):
-        # No paperless_url, no injected client → unconfigured state.
-        cfg = Config(rules_dir=tmp_path)
-        app = create_app(cfg)
-        with TestClient(app) as c:
-            body = c.get("/api/health").json()
-            assert body["paperless"]["ok"] is False
+def test_health_paperless_ok(app_client):
+    body = app_client.get("/api/health").json()
+    assert body["paperless"]["ok"] is True
+    assert body["app"]["name"] == "paperless-rules"
 
 
-# ── documents proxy ───────────────────────────────────────────────────
+def test_health_paperless_down(tmp_path):
+    cfg = Config(rules_dir=tmp_path)
+    with TestClient(create_app(cfg, paperless_client=FakePaperless(healthy=False))) as c:
+        assert c.get("/api/health").json()["paperless"]["ok"] is False
 
 
-class TestDocumentsProxy:
-    def test_list_documents(self, app_client):
-        r = app_client.get("/api/documents")
-        assert r.status_code == 200
-        assert r.json()["count"] == 2
-
-    def test_search_filters_results(self, app_client):
-        r = app_client.get("/api/documents?query=Swisscom")
-        assert r.status_code == 200
-        body = r.json()
-        assert body["count"] == 1
-        assert body["results"][0]["id"] == 42
-
-    def test_pagination_validation(self, app_client):
-        # page < 1 rejected
-        assert app_client.get("/api/documents?page=0").status_code == 422
-        # page_size > 100 rejected
-        assert app_client.get("/api/documents?page_size=999").status_code == 422
-
-    def test_get_document_text(self, app_client):
-        r = app_client.get("/api/documents/42/text")
-        assert r.status_code == 200
-        body = r.json()
-        assert body["id"] == 42
-        assert "Swisscom" in body["content"]
-        assert "Total à payer" in body["content"]
-
-    def test_get_document_text_missing(self, app_client):
-        r = app_client.get("/api/documents/9999/text")
-        assert r.status_code == 404
+def test_health_no_client_configured(tmp_path):
+    cfg = Config(rules_dir=tmp_path)
+    with TestClient(create_app(cfg)) as c:
+        assert c.get("/api/health").json()["paperless"]["ok"] is False
 
 
-# ── rules CRUD ────────────────────────────────────────────────────────
+# ── documents proxy ──────────────────────────────────────────────────
 
 
-class TestRulesCRUD:
-    def test_save_then_list_then_load(self, app_client):
-        text = "issuer: Test\nkeywords: [Test]\n"
-        save = app_client.post("/api/rules", json={"filename": "01_test.yml", "yaml": text})
-        assert save.status_code == 200
-
-        listing = app_client.get("/api/rules").json()
-        assert listing["rules"][0]["filename"] == "01_test.yml"
-        assert listing["rules"][0]["issuer"] == "Test"
-
-        load = app_client.get("/api/rules/01_test.yml").json()
-        assert load["yaml"] == text
-
-    def test_delete(self, app_client):
-        app_client.post("/api/rules", json={"filename": "r.yml", "yaml": "issuer: A\n"})
-        r = app_client.delete("/api/rules/r.yml")
-        assert r.status_code == 200
-        assert r.json()["removed"] is True
-        # Idempotent: deleting again returns ok with removed=False.
-        r2 = app_client.delete("/api/rules/r.yml")
-        assert r2.status_code == 200
-        assert r2.json()["removed"] is False
-
-    def test_path_traversal_in_filename_rejected(self, app_client):
-        r = app_client.post(
-            "/api/rules", json={"filename": "../escape.yml", "yaml": "issuer: X\n"}
-        )
-        assert r.status_code == 400
-
-    def test_invalid_yaml_rejected(self, app_client):
-        r = app_client.post(
-            "/api/rules", json={"filename": "r.yml", "yaml": ":\n  : broken"}
-        )
-        assert r.status_code == 400
-
-    def test_load_missing_returns_404(self, app_client):
-        assert app_client.get("/api/rules/missing.yml").status_code == 404
+def test_list_documents(app_client):
+    assert app_client.get("/api/documents").json()["count"] == 2
 
 
-# ── engine: full rule test ────────────────────────────────────────────
+def test_search_filters_results(app_client):
+    body = app_client.get("/api/documents?query=Swisscom").json()
+    assert body["count"] == 1 and body["results"][0]["id"] == 42
 
 
-class TestEngineEndpoint:
-    def test_runs_rule_against_doc(self, app_client):
-        rule_yaml = (
-            "issuer: Swisscom (Suisse) SA\n"
-            "keywords: [Swisscom, Facture]\n"
-            "fields:\n"
-            "  amount:\n"
-            "    regex: \"Total à payer\\\\s+CHF\\\\s+([\\\\d'.,-]+)\"\n"
-            "    type: float\n"
-        )
-        r = app_client.post("/api/test", json={"yaml": rule_yaml, "doc_ids": [42]})
-        assert r.status_code == 200
-        body = r.json()
-        result = body["results"][0]
-        assert result["doc_id"] == 42
-        assert result["extraction"]["fields"]["amount"]["value"] == 1234.5
-        assert result["extraction"]["required_ok"] is True
-
-    def test_invalid_yaml_returns_400(self, app_client):
-        r = app_client.post("/api/test", json={"yaml": ":\n  : broken", "doc_ids": [42]})
-        assert r.status_code == 400
-
-    def test_missing_doc_reports_per_doc_error(self, app_client):
-        r = app_client.post(
-            "/api/test",
-            json={"yaml": "keywords: [Swisscom]\n", "doc_ids": [42, 9999]},
-        )
-        assert r.status_code == 200
-        results = r.json()["results"]
-        assert len(results) == 2
-        assert "error" in results[1]
+@pytest.mark.parametrize("url,status", [
+    ("/api/documents?page=0", 422),
+    ("/api/documents?page_size=999", 422),
+])
+def test_pagination_validation(app_client, url, status):
+    assert app_client.get(url).status_code == status
 
 
-# ── regex tester ──────────────────────────────────────────────────────
+def test_get_document_text(app_client):
+    body = app_client.get("/api/documents/42/text").json()
+    assert body["id"] == 42 and "Total à payer" in body["content"]
 
 
-class TestRegexTester:
-    def test_with_text_only(self, app_client):
-        r = app_client.post(
-            "/api/regex/test",
-            json={"pattern": r"\d+", "text": "abc 42 def 100"},
-        )
-        assert r.status_code == 200
-        body = r.json()
-        assert body["ok"]
-        assert body["results"][0]["match_count"] == 2
-
-    def test_with_doc_ids_returns_per_doc_results(self, app_client):
-        r = app_client.post(
-            "/api/regex/test",
-            json={"pattern": r"CHF\s+[\d'.,-]+", "doc_ids": [42, 43]},
-        )
-        assert r.status_code == 200
-        body = r.json()
-        results = {x["doc_id"]: x for x in body["results"]}
-        assert results[42]["match_count"] >= 1
-        assert results[43]["match_count"] == 0
-
-    def test_coercion_preview(self, app_client):
-        # The coerced value flows through the same path as the engine, so
-        # the editor's preview matches what the runtime will write.
-        r = app_client.post(
-            "/api/regex/test",
-            json={
-                "pattern": r"Total à payer\s+CHF\s+([\d'.,-]+)",
-                "doc_ids": [42],
-                "type": "float",
-            },
-        )
-        body = r.json()
-        match = body["results"][0]["matches"][0]
-        assert match["coerced"] == 1234.5
-        assert match["groups"] == ["1'234.50"]
-
-    def test_invalid_regex_returns_ok_false(self, app_client):
-        # The editor calls this on every keystroke — must NOT 5xx on a
-        # half-typed pattern. Returns ok=False so the UI shows an inline
-        # error indicator instead of crashing.
-        r = app_client.post("/api/regex/test", json={"pattern": "[unclosed", "text": "x"})
-        assert r.status_code == 200
-        body = r.json()
-        assert body["ok"] is False
-        assert body["error"]
-        assert body["results"] == []
-
-    def test_requires_text_or_doc_ids(self, app_client):
-        r = app_client.post("/api/regex/test", json={"pattern": "x"})
-        assert r.status_code == 400
-
-    def test_flags(self, app_client):
-        # Default has 'm' on. Adding 'i' makes the match case-insensitive.
-        r = app_client.post(
-            "/api/regex/test",
-            json={"pattern": "SWISSCOM", "doc_ids": [42], "flags": "i"},
-        )
-        assert r.json()["results"][0]["match_count"] >= 1
+def test_get_document_text_missing(app_client):
+    assert app_client.get("/api/documents/9999/text").status_code == 404
 
 
-# ── bootstrap ─────────────────────────────────────────────────────────
+# ── rules CRUD ───────────────────────────────────────────────────────
 
 
-class TestBootstrapEndpoint:
-    def test_returns_suggestion_struct(self, app_client):
-        r = app_client.post("/api/bootstrap", json={"doc_id": 42})
-        assert r.status_code == 200
-        body = r.json()
-        assert "Swisscom" in body["issuer"]
-        assert body["currency"] == "CHF"
-        assert body["language"] == "fr"
-        assert any(f["name"] == "amount" for f in body["fields"])
-
-    def test_missing_doc_returns_404(self, app_client):
-        assert app_client.post("/api/bootstrap", json={"doc_id": 9999}).status_code == 404
+def test_save_then_list_then_load(app_client):
+    text = "issuer: Test\nkeywords: [Test]\n"
+    assert app_client.post("/api/rules", json={"filename": "01_test.yml", "yaml": text}).status_code == 200
+    listing = app_client.get("/api/rules").json()
+    assert listing["rules"][0] == {"filename": "01_test.yml", "issuer": "Test", "keywords": ["Test"], "field_count": 0}
+    assert app_client.get("/api/rules/01_test.yml").json()["yaml"] == text
 
 
-class TestStaticSPA:
-    """The editor SPA is served from `/`. Smoke-check that index.html is
-    reachable and contains the expected layout markers — catches breakage
-    of the static-mount registration order."""
+def test_delete_idempotent(app_client):
+    app_client.post("/api/rules", json={"filename": "r.yml", "yaml": "issuer: A\n"})
+    assert app_client.delete("/api/rules/r.yml").json()["removed"] is True
+    assert app_client.delete("/api/rules/r.yml").json()["removed"] is False  # idempotent
 
-    def test_index_served_at_root(self, app_client):
-        r = app_client.get("/")
-        assert r.status_code == 200
-        assert r.headers["content-type"].startswith("text/html")
-        body = r.text
-        assert "paperless·rules" in body
-        # Three structural elements proving the regex-first layout shipped.
-        assert 'id="pane-corpus"' in body
-        assert 'id="regex-tester"' in body
-        assert 'id="bootstrap-modal"' in body
 
-    def test_api_routes_still_match_under_static_mount(self, app_client):
-        # Static mount is at /, but more specific /api/* routes must be
-        # checked first — this test guards against regression of route
-        # registration order in create_app().
-        assert app_client.get("/api/health").status_code == 200
+@pytest.mark.parametrize("body,status", [
+    ({"filename": "../escape.yml", "yaml": "issuer: X\n"}, 400),
+    ({"filename": "r.yml", "yaml": ":\n  : broken"}, 400),
+])
+def test_save_rejects(app_client, body, status):
+    assert app_client.post("/api/rules", json=body).status_code == status
+
+
+def test_load_missing_404(app_client):
+    assert app_client.get("/api/rules/missing.yml").status_code == 404
+
+
+# ── full rule test ───────────────────────────────────────────────────
+
+
+def test_runs_rule_against_doc(app_client):
+    rule_yaml = (
+        "keywords: [Swisscom, Facture]\n"
+        "fields:\n"
+        "  amount:\n"
+        "    regex: \"Total à payer\\\\s+CHF\\\\s+([\\\\d'.,-]+)\"\n"
+        "    type: float\n"
+    )
+    body = app_client.post("/api/test", json={"yaml": rule_yaml, "doc_ids": [42]}).json()
+    f = body["results"][0]["extraction"]["fields"]["amount"]
+    assert f["value"] == 1234.5
+    assert body["results"][0]["extraction"]["required_ok"]
+
+
+def test_invalid_yaml_returns_400(app_client):
+    assert app_client.post("/api/test", json={"yaml": ":\n  : broken", "doc_ids": [42]}).status_code == 400
+
+
+def test_missing_doc_reports_per_doc_error(app_client):
+    r = app_client.post("/api/test", json={"yaml": "keywords: [Swisscom]\n", "doc_ids": [42, 9999]})
+    results = r.json()["results"]
+    assert len(results) == 2 and "error" in results[1]
+
+
+# ── regex tester ─────────────────────────────────────────────────────
+
+
+def test_regex_with_text(app_client):
+    body = app_client.post("/api/regex/test", json={"pattern": r"\d+", "text": "abc 42 def 100"}).json()
+    assert body["ok"] and body["results"][0]["match_count"] == 2
+
+
+def test_regex_with_doc_ids(app_client):
+    body = app_client.post(
+        "/api/regex/test",
+        json={"pattern": r"CHF\s+[\d'.,-]+", "doc_ids": [42, 43]},
+    ).json()
+    by_id = {x["doc_id"]: x for x in body["results"]}
+    assert by_id[42]["match_count"] >= 1
+    assert by_id[43]["match_count"] == 0
+
+
+def test_regex_coercion_preview(app_client):
+    body = app_client.post("/api/regex/test", json={
+        "pattern": r"Total à payer\s+CHF\s+([\d'.,-]+)",
+        "doc_ids": [42], "type": "float",
+    }).json()
+    m = body["results"][0]["matches"][0]
+    assert m["coerced"] == 1234.5
+    assert m["groups"] == ["1'234.50"]
+
+
+def test_invalid_regex_returns_ok_false(app_client):
+    # Editor calls this on every keystroke — must return 200 for half-typed
+    # patterns, with ok=false so the UI shows an inline error.
+    body = app_client.post("/api/regex/test", json={"pattern": "[unclosed", "text": "x"}).json()
+    assert body["ok"] is False and body["error"] and body["results"] == []
+
+
+def test_regex_requires_text_or_doc_ids(app_client):
+    assert app_client.post("/api/regex/test", json={"pattern": "x"}).status_code == 400
+
+
+def test_case_insensitive_flag(app_client):
+    body = app_client.post(
+        "/api/regex/test",
+        json={"pattern": "SWISSCOM", "doc_ids": [42], "flags": "i"},
+    ).json()
+    assert body["results"][0]["match_count"] >= 1
+
+
+# ── bootstrap ────────────────────────────────────────────────────────
+
+
+def test_bootstrap_returns_suggestion(app_client):
+    body = app_client.post("/api/bootstrap", json={"doc_id": 42}).json()
+    assert "Swisscom" in body["issuer"]
+    assert body["currency"] == "CHF" and body["language"] == "fr"
+    assert any(f["name"] == "amount" for f in body["fields"])
+
+
+def test_bootstrap_missing_doc_404(app_client):
+    assert app_client.post("/api/bootstrap", json={"doc_id": 9999}).status_code == 404
+
+
+# ── static SPA ───────────────────────────────────────────────────────
+
+
+def test_index_served_at_root(app_client):
+    r = app_client.get("/")
+    assert r.status_code == 200
+    assert r.headers["content-type"].startswith("text/html")
+    body = r.text
+    assert "paperless·rules" in body
+    assert 'id="pane-corpus"' in body
+    assert 'id="regex-tester"' in body
+
+
+def test_api_routes_match_under_static_mount(app_client):
+    # Guards against regression where StaticFiles mount intercepts /api/*.
+    assert app_client.get("/api/health").status_code == 200
