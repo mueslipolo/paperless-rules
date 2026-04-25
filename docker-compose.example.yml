@@ -1,0 +1,44 @@
+# Drop-in addition to your existing paperless-ngx compose stack.
+# Place this in the same directory as your paperless docker-compose.yml,
+# or merge the `paperless-rules` service into it.
+#
+# Defaults to *poller* mode — paperless-rules polls the paperless API every
+# minute for new/changed documents and writes back metadata. No changes
+# needed on the paperless side. The editor is reachable at :8765.
+#
+# To use post_consume mode instead, set RUNTIME_MODE=post_consume and wire
+# PAPERLESS_POST_CONSUME_SCRIPT in your paperless container to invoke this
+# project's CLI per consumed document — see PROJECT.md §10.
+
+services:
+  paperless-rules:
+    image: paperless-rules:latest
+    container_name: paperless-rules
+    environment:
+      PAPERLESS_URL: http://paperless:8000
+      PAPERLESS_TOKEN: ${PAPERLESS_RULES_TOKEN}
+      RULES_DIR: /data/rules
+      STATE_DIR: /data/state
+      EDITOR_ENABLED: "true"
+      EDITOR_PORT: "8765"
+      RUNTIME_MODE: poller
+      POLL_INTERVAL_SECONDS: "60"
+      LOG_LEVEL: INFO
+      # Set TZ to your locale so log timestamps match your other containers.
+      TZ: Europe/Zurich
+    volumes:
+      - ./paperless-rules/rules:/data/rules
+      - ./paperless-rules/state:/data/state
+    ports:
+      # Bind to localhost only — expose externally via your reverse proxy
+      # (nginx, Traefik, Caddy …) the same way you expose paperless itself.
+      - "127.0.0.1:8765:8765"
+    depends_on:
+      - paperless
+    restart: unless-stopped
+    # Limits keep the container honest on a Synology / small NAS.
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M

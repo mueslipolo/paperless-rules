@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Runtime state
+state/*
+!state/.gitkeep
+tests/e2e/rules/*
+!tests/e2e/rules/.gitkeep
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo

@@ -1,0 +1,81 @@
+# End-to-end test stack. Brings up paperless-ngx with PostgreSQL + Redis,
+# isolated from any production paperless on the same host (distinct container
+# names, volumes, and host ports — paperless on 18000, rules editor on 18765).
+# Pure read/write tests — no Tika / Gotenberg, since the test fixtures are
+# .txt files paperless ingests directly without OCR.
+#
+# Brought up by tests/e2e/conftest.py via the detected compose CLI
+# (docker / podman). Manual use:
+#   podman compose -f docker-compose.test.yml up -d
+#   podman compose -f docker-compose.test.yml down -v
+
+services:
+  test-redis:
+    image: docker.io/library/redis:7-alpine
+    container_name: paperless-rules-test-redis
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  test-db:
+    image: docker.io/library/postgres:16-alpine
+    container_name: paperless-rules-test-db
+    environment:
+      POSTGRES_DB: paperless
+      POSTGRES_USER: paperless
+      POSTGRES_PASSWORD: paperless
+    volumes:
+      - test-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U paperless -d paperless"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  test-paperless:
+    # Pin a known-good version to keep CI deterministic; bump deliberately.
+    image: ghcr.io/paperless-ngx/paperless-ngx:2.13
+    container_name: paperless-rules-test-paperless
+    depends_on:
+      test-db:
+        condition: service_healthy
+      test-redis:
+        condition: service_healthy
+    environment:
+      PAPERLESS_REDIS: redis://test-redis:6379
+      PAPERLESS_DBHOST: test-db
+      PAPERLESS_DBNAME: paperless
+      PAPERLESS_DBUSER: paperless
+      PAPERLESS_DBPASS: paperless
+      PAPERLESS_SECRET_KEY: not-for-production-test-only
+      PAPERLESS_URL: http://localhost:8000
+      PAPERLESS_ADMIN_USER: admin
+      PAPERLESS_ADMIN_PASSWORD: admin
+      PAPERLESS_OCR_LANGUAGE: deu+fra+eng
+      PAPERLESS_TIME_ZONE: Europe/Zurich
+      # Poll consume dir every second so tests don't have to wait long.
+      PAPERLESS_CONSUMER_POLLING: "1"
+      USERMAP_UID: "1000"
+      USERMAP_GID: "1000"
+    volumes:
+      # Mount engine fixtures (same set powering tier 1) as the consume dir.
+      # paperless ingests .txt files directly without OCR, so `content`
+      # equals the file bytes — deterministic seeding for the tests.
+      - ./tests/fixtures:/usr/src/paperless/consume:ro
+      - test-paperless-data:/usr/src/paperless/data
+      - test-paperless-media:/usr/src/paperless/media
+    ports:
+      - "127.0.0.1:18000:8000"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8000/api/ -H 'Accept: application/json' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 60s
+
+volumes:
+  test-db-data:
+  test-paperless-data:
+  test-paperless-media:
