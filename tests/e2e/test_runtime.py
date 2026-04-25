@@ -2,7 +2,7 @@
 
 Each test:
   1. Writes a YAML rule into the per-test rules dir.
-  2. Picks a seeded document (Swisscom invoice fixture) by title.
+  2. Picks a seeded document (Acme invoice fixture) by title.
   3. Runs `apply_rules_to_document` against the live paperless API.
   4. Re-fetches the doc and asserts the metadata landed (correspondent,
      document_type, tags, custom_fields).
@@ -23,15 +23,15 @@ from paperless_rules.runtime.apply import apply_rules_to_document
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
-def _swisscom_rule_yaml() -> str:
+def _acme_rule_yaml() -> str:
     return (
-        "issuer: Swisscom (Suisse) SA\n"
+        "issuer: Acme Télécom (Europe) SARL\n"
         "document_type: Invoice\n"
         "tags: [telecom, monthly]\n"
-        "keywords: [Swisscom, Facture]\n"
+        "keywords: [Acme, Facture]\n"
         "fields:\n"
         "  amount:\n"
-        '    regex: "Total à payer\\\\s+CHF\\\\s+([\\\\d\'.,-]+)"\n'
+        '    regex: "Total à payer\\\\s+EUR\\\\s+([\\\\d ,-]+)"\n'
         "    type: float\n"
         "  invoice_number:\n"
         '    regex: "Numéro de facture\\\\s+(\\\\d+)"\n'
@@ -41,7 +41,7 @@ def _swisscom_rule_yaml() -> str:
         "    type: date\n"
         "required_fields: [amount, date]\n"
         "options:\n"
-        "  currency: CHF\n"
+        "  currency: EUR\n"
         "  date_formats: ['%d.%m.%Y']\n"
     )
 
@@ -72,11 +72,11 @@ class TestApplyHappyPath:
     async def test_extracts_and_writes_metadata(
         self, fresh_rules_dir, paperless_client_factory, seeded_doc_ids, admin_token
     ):
-        (fresh_rules_dir / "01_swisscom.yml").write_text(_swisscom_rule_yaml())
+        (fresh_rules_dir / "01_acme.yml").write_text(_acme_rule_yaml())
         rules = load_rules(fresh_rules_dir)
         assert len(rules) == 1
 
-        doc_id = _doc_id_by_title(seeded_doc_ids, admin_token, "swisscom")
+        doc_id = _doc_id_by_title(seeded_doc_ids, admin_token, "acme")
         client = paperless_client_factory()
         try:
             result = await apply_rules_to_document(client, doc_id, rules)
@@ -103,7 +103,7 @@ class TestApplyHappyPath:
         assert len(doc["tags"]) >= 2
         # Custom fields should include the three extracted values.
         cf_values = [c.get("value") for c in (doc.get("custom_fields") or [])]
-        assert any("CHF" in str(v) for v in cf_values)
+        assert any("EUR" in str(v) for v in cf_values)
         assert any(str(v).startswith("2024-") for v in cf_values)
 
 
@@ -114,9 +114,9 @@ class TestIdempotency:
     async def test_second_run_makes_no_changes(
         self, fresh_rules_dir, paperless_client_factory, seeded_doc_ids, admin_token
     ):
-        (fresh_rules_dir / "01_swisscom.yml").write_text(_swisscom_rule_yaml())
+        (fresh_rules_dir / "01_acme.yml").write_text(_acme_rule_yaml())
         rules = load_rules(fresh_rules_dir)
-        doc_id = _doc_id_by_title(seeded_doc_ids, admin_token, "swisscom")
+        doc_id = _doc_id_by_title(seeded_doc_ids, admin_token, "acme")
 
         client = paperless_client_factory()
         try:
@@ -144,7 +144,7 @@ class TestNoMatch:
             "keywords: [DefinitelyNotInTheFixtures_XYZ_marker]\n"
         )
         rules = load_rules(fresh_rules_dir)
-        doc_id = _doc_id_by_title(seeded_doc_ids, admin_token, "swisscom")
+        doc_id = _doc_id_by_title(seeded_doc_ids, admin_token, "acme")
 
         # Snapshot the doc before — runtime must leave it identical.
         from tests.e2e.conftest import PAPERLESS_URL
@@ -179,7 +179,7 @@ class TestBackfill:
     async def test_backfill_processes_all_matching(
         self, fresh_rules_dir, paperless_client_factory, seeded_doc_ids
     ):
-        (fresh_rules_dir / "01_swisscom.yml").write_text(_swisscom_rule_yaml())
+        (fresh_rules_dir / "01_acme.yml").write_text(_acme_rule_yaml())
         rules = load_rules(fresh_rules_dir)
 
         client = paperless_client_factory()
@@ -192,6 +192,6 @@ class TestBackfill:
         finally:
             await client.aclose()
 
-        # The Swisscom fixture is the only one currently matching this rule;
-        # other fixtures that don't contain "Swisscom" or "Facture" are skipped.
+        # The Acme fixture is the only one currently matching this rule;
+        # other fixtures that don't contain "Acme" or "Facture" are skipped.
         assert matched >= 1

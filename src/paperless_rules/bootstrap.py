@@ -80,8 +80,8 @@ def _detect_language(text: str) -> str:
 
 
 def _detect_currency(text: str) -> str:
-    m = re.search(r"\b(CHF|EUR|USD|GBP)\b", text)
-    return m.group(1) if m else "CHF"
+    m = re.search(r"\b(CHF|EUR|USD|GBP|JPY|CAD|AUD)\b", text)
+    return m.group(1) if m else "EUR"
 
 
 _ALL_STOPS = frozenset().union(*_LANG_STOPWORDS.values())
@@ -119,16 +119,17 @@ _DATE_NAMES = frozenset({"date", "due_date", "period"})
 _REF_NAMES = frozenset({"invoice_number", "customer_number", "reference"})
 
 
+# Currency-prefix list is broad on purpose; users can add country-specific
+# patterns directly in their rule's regex if they need anything more exotic.
 _AMOUNT_RE = re.compile(
-    r"(?:CHF|EUR|USD|GBP|Fr\.?)\s*([+\-]?\d[\d'’ʼ., ]*)|"
-    r"([+\-]?\d[\d'’ʼ., ]*)\s*(?:CHF|EUR|USD|GBP|Fr\.?)"
+    r"(?:CHF|EUR|USD|GBP|JPY|CAD|AUD|Fr\.?)\s*([+\-]?\d[\d'’ʼ., ]*)|"
+    r"([+\-]?\d[\d'’ʼ., ]*)\s*(?:CHF|EUR|USD|GBP|JPY|CAD|AUD|Fr\.?)"
 )
 _DATE_RE = re.compile(
     r"\b(\d{1,2}\.\d{1,2}\.\d{2,4}|\d{4}-\d{1,2}-\d{1,2}|\d{1,2}/\d{1,2}/\d{2,4})\b"
 )
-_IBAN_RE = re.compile(r"\b(CH\d{2}\s?(?:\d{4}\s?){4}\d{1,2})\b")
-_AHV_RE = re.compile(r"\b(756\.\d{4}\.\d{4}\.\d{2})\b")
-_GLN_RE = re.compile(r"\b(7601\d{9})\b")
+# International IBAN — country prefix + check + 11..30 alphanumeric chars.
+_IBAN_RE = re.compile(r"\b([A-Z]{2}\d{2}(?:\s?[A-Z0-9]){11,30})\b")
 _REF_RE = re.compile(
     r"(?:Nr\.?|No\.?|Numéro|Ref\.?|Référence|Referenz)\s*[:\-]?\s*"
     r"([A-Z0-9][A-Z0-9\-/]{2,})", re.IGNORECASE,
@@ -153,10 +154,6 @@ def _candidate_fields(text: str) -> list[dict[str, Any]]:
 
     for m in _IBAN_RE.finditer(text):
         add("iban", "str", m.group(1), "IBAN", False)
-    for m in _AHV_RE.finditer(text):
-        add("ahv", "str", m.group(1), "AHV / AVS", False)
-    for m in _GLN_RE.finditer(text):
-        add("gln", "str", m.group(1), "GLN", False)
 
     for line in text.split("\n"):
         for m in _AMOUNT_RE.finditer(line):

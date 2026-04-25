@@ -13,7 +13,7 @@ from paperless_rules.rules_io import (
 )
 
 
-@pytest.mark.parametrize("name", ["01_swisscom.yml", "rule.yaml"])
+@pytest.mark.parametrize("name", ["01_acme.yml", "rule.yaml"])
 def test_validate_accepts(name):
     assert validate_filename(name) == name
 

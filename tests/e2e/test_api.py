@@ -44,18 +44,18 @@ class TestEditorAgainstRealPaperless:
     def test_document_text_returns_real_ocr_content(
         self, app_client, seeded_doc_ids
     ):
-        # The Swisscom fixture is one of the seeded docs; pick the first
+        # The Acme fixture is one of the seeded docs; pick the first
         # one whose OCR contains the recognisable marker.
         for doc_id in seeded_doc_ids:
             r = app_client.get(f"/api/documents/{doc_id}/text")
             assert r.status_code == 200
             content = r.json()["content"]
             if "Total à payer" in content:
-                # Confirm the byte-for-byte ingestion claim from the spec:
-                # plain-.txt consume keeps the file content unchanged.
-                assert "1'234.50" in content
+                # Confirm byte-for-byte ingestion: plain-.txt consume keeps
+                # the file content unchanged.
+                assert "1 234,50" in content
                 return
-        pytest.fail("did not find the Swisscom fixture among seeded docs")
+        pytest.fail("did not find the Acme fixture among seeded docs")
 
     def test_regex_test_with_doc_ids_returns_per_doc_matches(
         self, app_client, seeded_doc_ids
@@ -63,7 +63,7 @@ class TestEditorAgainstRealPaperless:
         r = app_client.post(
             "/api/regex/test",
             json={
-                "pattern": r"CHF\s+([\d'.,-]+)",
+                "pattern": r"EUR\s+([\d ,-]+)",
                 "doc_ids": seeded_doc_ids,
                 "type": "float",
             },
@@ -71,43 +71,43 @@ class TestEditorAgainstRealPaperless:
         assert r.status_code == 200
         body = r.json()
         assert body["ok"]
-        # At least one doc has a CHF amount (the Swisscom fixture).
+        # At least one doc has an EUR amount (the Acme fixture).
         assert any(x["match_count"] > 0 for x in body["results"])
 
-    def test_bootstrap_against_swisscom_fixture(
+    def test_bootstrap_against_acme_fixture(
         self, app_client, seeded_doc_ids
     ):
-        # Find Swisscom doc id
+        # Find Acme doc id
         for doc_id in seeded_doc_ids:
             text = app_client.get(f"/api/documents/{doc_id}/text").json()["content"]
-            if "Swisscom" in text:
+            if "Acme" in text:
                 break
         else:
-            pytest.fail("no Swisscom doc seeded")
+            pytest.fail("no Acme doc seeded")
 
         r = app_client.post("/api/bootstrap", json={"doc_id": doc_id})
         assert r.status_code == 200
         body = r.json()
-        assert "Swisscom" in body["issuer"]
-        assert body["currency"] == "CHF"
+        assert "Acme" in body["issuer"]
+        assert body["currency"] == "EUR"
         assert any(f["name"] == "amount" for f in body["fields"])
 
     def test_full_rule_test_extracts_amount(
         self, app_client, seeded_doc_ids
     ):
-        # Find the Swisscom doc
+        # Find the Acme doc
         for doc_id in seeded_doc_ids:
             text = app_client.get(f"/api/documents/{doc_id}/text").json()["content"]
-            if "Swisscom" in text:
+            if "Acme" in text:
                 break
         else:
-            pytest.fail("no Swisscom doc seeded")
+            pytest.fail("no Acme doc seeded")
 
         rule_yaml = (
-            "keywords: [Swisscom, Facture]\n"
+            "keywords: [Acme, Facture]\n"
             "fields:\n"
             "  amount:\n"
-            '    regex: "Total à payer\\\\s+CHF\\\\s+([\\\\d''.,-]+)"\n'
+            '    regex: "Total à payer\\\\s+EUR\\\\s+([\\\\d ,-]+)"\n'
             "    type: float\n"
         )
         r = app_client.post(

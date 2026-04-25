@@ -4,8 +4,6 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-import pytest
-
 from paperless_rules.paperless_client import PaperlessError
 from paperless_rules.runtime.apply import (
     ResolutionCache,
@@ -13,7 +11,7 @@ from paperless_rules.runtime.apply import (
 )
 
 FIXTURES = Path(__file__).parent / "fixtures"
-SWISSCOM = (FIXTURES / "swisscom_invoice.txt").read_text(encoding="utf-8")
+ACME = (FIXTURES / "acme_invoice.txt").read_text(encoding="utf-8")
 
 
 class WriteRecordingPaperless:
@@ -66,7 +64,7 @@ class WriteRecordingPaperless:
 
 def _doc(**overrides):
     base = {
-        "id": 42, "title": "Swisscom Mar 2024", "content": SWISSCOM,
+        "id": 42, "title": "Acme Mar 2024", "content": ACME,
         "correspondent": None, "document_type": None,
         "tags": [], "custom_fields": [],
     }
@@ -76,17 +74,17 @@ def _doc(**overrides):
 
 def _rule():
     return {
-        "issuer": "Swisscom (Suisse) SA",
+        "issuer": "Acme Télécom (Europe) SARL",
         "document_type": "Invoice",
         "tags": ["telecom", "monthly"],
-        "keywords": ["Swisscom", "Facture"],
+        "keywords": ["Acme", "Facture"],
         "fields": {
-            "amount": {"regex": r"Total à payer\s+CHF\s+([\d'.,-]+)", "type": "float"},
+            "amount": {"regex": r"Total à payer\s+EUR\s+([\d ,-]+)", "type": "float"},
             "invoice_number": {"regex": r"Numéro de facture\s+(\d+)", "type": "str"},
             "date": {"regex": r"Date d'émission\s+(\d{2}\.\d{2}\.\d{4})", "type": "date"},
         },
         "required_fields": ["amount", "date"],
-        "options": {"currency": "CHF", "date_formats": ["%d.%m.%Y"]},
+        "options": {"currency": "EUR", "date_formats": ["%d.%m.%Y"]},
     }
 
 
@@ -107,18 +105,18 @@ async def test_extracted_values_become_custom_fields():
     client = WriteRecordingPaperless({42: _doc()})
     await apply_rules_to_document(client, 42, [("01.yml", _rule())])
     cf_values = {c["value"] for c in client.patches[0][1]["custom_fields"]}
-    assert "CHF1234.50" in cf_values
+    assert "EUR1234.50" in cf_values
     assert "2024-03-15" in cf_values
     assert "987654321" in cf_values
 
 
 async def test_monetary_uses_rule_currency():
     rule = _rule()
-    rule["options"]["currency"] = "EUR"
+    rule["options"]["currency"] = "USD"
     client = WriteRecordingPaperless({42: _doc()})
     await apply_rules_to_document(client, 42, [("01.yml", rule)])
     cf_values = [c["value"] for c in client.patches[0][1]["custom_fields"]]
-    assert any(v.startswith("EUR") for v in cf_values)
+    assert any(v.startswith("USD") for v in cf_values)
 
 
 # ── idempotency / overwrite semantics ────────────────────────────────
@@ -234,7 +232,7 @@ async def test_dry_run_still_creates_lookup_records():
 
 
 async def test_resolution_cache_reused_across_docs():
-    docs = {42: _doc(), 43: _doc(id=43, title="Swisscom Apr")}
+    docs = {42: _doc(), 43: _doc(id=43, title="Acme Apr")}
     client = WriteRecordingPaperless(docs)
     cache = ResolutionCache()
     await apply_rules_to_document(client, 42, [("01.yml", _rule())], cache=cache)

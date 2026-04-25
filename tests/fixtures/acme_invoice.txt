@@ -1,0 +1,33 @@
+Acme Télécom (Europe) SARL
+1 rue de la République
+75001 Paris
+
+                                            Facture mensuelle
+
+Numéro de client       1234567890
+Numéro de facture      987654321
+Période de facturation 01.03.2024 - 31.03.2024
+Date d'émission        15.03.2024
+Échéance               14.04.2024
+
+Détails de votre facture
+─────────────────────────────────────────
+
+Abonnement mobile                               EUR         55,00
+Forfait Internet (1 Gbit/s)                     EUR         89,95
+Forfait TV                                      EUR         29,90
+Frais de hotline                                EUR          0,00
+Roaming Europe                                  EUR         12,00
+
+Sous-total                                      EUR        186,85
+Remise fidélité                                 EUR        -10,00
+TVA 20%                                         EUR         37,37
+─────────────────────────────────────────────────
+Total à payer                                   EUR      1 234,50
+
+IBAN                FR76 3000 1000 0000 1234 5678 901
+BIC                 BNPAFRPPXXX
+
+Numéro de référence   210000000003139471430009017
+
+Acme Télécom (Europe) SARL · 1 rue de la République · 75001 Paris

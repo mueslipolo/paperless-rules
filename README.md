@@ -2,11 +2,13 @@
 
 Rule-based document classification and extraction for [paperless-ngx](https://github.com/paperless-ngx/paperless-ngx).
 
-A web editor + runtime that learns the patterns of your recurring senders (Swisscom, CSS, UBS, …) and writes back paperless metadata: correspondent, document type, tags, and custom fields. Regex-first, deterministic, no LLM, no database.
+A web editor + runtime that learns the patterns of your recurring senders and writes back paperless metadata: correspondent, document type, tags, and custom fields. Regex-first, deterministic, no LLM, no database.
 
 ## Why
 
-paperless-ngx has built-in matching rules but each only assigns one piece of metadata. paperless-rules adds **two-stage matching**: a rule identifies a document by keywords, then *because* it matched, a bundle of regexes extract amounts / dates / reference numbers into custom fields. For predictable templates (~70 % of typical household admin), this beats an LLM-based approach on accuracy, speed, cost, and auditability.
+paperless-ngx has built-in matching rules but each one only assigns a single piece of metadata. paperless-rules adds **two-stage matching**: a rule identifies a document by keywords, then *because* it matched, a bundle of regexes extract amounts / dates / reference numbers into custom fields. For predictable templates (around 70 % of typical household admin), this beats an LLM-based approach on accuracy, speed, cost, and auditability.
+
+Currency, date formats, language, and matching tags are all configurable per rule — see [Writing rules](#writing-rules).
 
 ---
 
@@ -47,9 +49,9 @@ paperless-ngx has built-in matching rules but each only assigns one piece of met
    docker compose up -d paperless-rules
    ```
 6. **Open the editor** at `http://localhost:8765`. The health pill should say `paperless: connected`.
-7. **Author a rule**: click a Swisscom (or any recurring) document, click `bootstrap`, accept the suggested keywords + fields, fill in the regex for `amount` using the live tester, click `save`. Done.
+7. **Author a rule**: open one of your recurring documents, click `bootstrap`, accept the suggested keywords + fields, fill in the regex for `amount` using the live tester, click `save`.
 
-The poller will pick up new documents within `POLL_INTERVAL_SECONDS` (default 60s) and write back metadata. Existing documents can be back-filled with `paperless-rules backfill`.
+The poller picks up new documents within `POLL_INTERVAL_SECONDS` (default 60s) and writes back metadata. Existing documents can be back-filled with `paperless-rules backfill`.
 
 ---
 
@@ -84,7 +86,7 @@ sudo docker build -t paperless-rules:latest .
       PAPERLESS_URL: http://paperless-webserver:8000   # match your paperless service name
       PAPERLESS_TOKEN: ${PAPERLESS_RULES_TOKEN}
       RUNTIME_MODE: poller
-      TZ: Europe/Zurich
+      TZ: UTC                                          # or your locale, e.g. Europe/Berlin
     volumes:
       - /volume1/docker/paperless-rules/rules:/data/rules
       - /volume1/docker/paperless-rules/state:/data/state
@@ -120,7 +122,7 @@ cd paperless-rules
 docker build -t paperless-rules:latest .
 ```
 
-The image is a multi-stage Python 3.12 build, runs as a non-root user (`paperless`, uid 1000), and exposes a `/api/health` endpoint for healthchecks.
+The image is a multi-stage Python 3.12 build, runs as a non-root user (`paperless`, uid 1000), and exposes `/api/health` for healthchecks.
 
 ---
 
@@ -155,62 +157,61 @@ Two runtime modes:
 
 ## Writing rules
 
-A rule is a YAML file in `rules/`. Filenames load alphabetically — prefix with `NN_` to control specificity (`01_swisscom_invoice.yml` runs before `99_generic_invoice.yml`). The first rule whose `keywords` match and `required_fields` extract wins.
+A rule is a YAML file in `rules/`. Filenames load alphabetically — prefix with `NN_` to control specificity (`01_acme_invoice.yml` runs before `99_generic_invoice.yml`). The first rule whose `keywords` match and `required_fields` extract wins.
 
-### Example 1 — Swisscom mobile invoice (FR)
+### Example 1 — Telecom mobile invoice (French)
 
-The canonical case: stable issuer name, French invoice template, Swiss number formatting (`1'234.50`).
+The canonical case: stable issuer name, French invoice template, EUR with comma decimal.
 
 ```yaml
-issuer: Swisscom (Suisse) SA
+issuer: Acme Télécom (Europe) SARL
 document_type: Invoice
 tags: [telecom, mobile, monthly]
 
 keywords:
-  - Swisscom
+  - Acme
   - Facture
 
 exclude_keywords:
   - Rappel                    # don't match reminders / dunning notices
-  - Mahnung
 
 fields:
   amount:
-    regex: 'Total à payer\s+CHF\s+([\d''.,]+)'
-    type: float               # writes "CHF1234.50" as a monetary custom_field
+    regex: 'Total à payer\s+EUR\s+([\d ,]+)'
+    type: float               # writes "EUR1234.50" as a monetary custom_field
   date:
     regex: 'Date d''émission\s+(\d{2}\.\d{2}\.\d{4})'
     type: date                # writes "2024-03-15" as a date custom_field
   invoice_number:
     regex:
       - 'Numéro de facture\s+(\d+)'
-      - 'No\.?\s*facture\s+(\d+)'        # alternate template
+      - 'No\.?\s*facture\s+(\d+)'   # alternate template
     type: str
 
 required_fields: [amount, date]
 
 options:
-  currency: CHF
+  currency: EUR
   date_formats: ['%d.%m.%Y']
   languages: [fr]
 ```
 
-### Example 2 — CSS health-insurance premium statement (DE)
+### Example 2 — Insurance premium statement (German)
 
-Different language, different number format, no apostrophe thousand separator.
+Different language, due_date, and a locale-dependent month name (`%B`).
 
 ```yaml
-issuer: CSS Versicherung AG
+issuer: Globex Versicherung GmbH
 document_type: Insurance premium
 tags: [insurance, health, monthly]
 
 keywords:
-  - CSS
+  - Globex
   - Prämienrechnung
 
 fields:
   amount:
-    regex: 'Rechnungsbetrag\s+CHF\s+([\d''.,]+)'
+    regex: 'Rechnungsbetrag\s+EUR\s+([\d.,]+)'
     type: float
   date:
     regex: 'Rechnungsdatum\s+(\d{1,2}\.\s?\w+\s+\d{4})'
@@ -219,104 +220,72 @@ fields:
     regex: 'Fällig am\s+(\d{2}\.\d{2}\.\d{4})'
     type: date
   policy_number:
-    regex: 'Polizze[\s.-]+(\d{6,})'
+    regex: 'Police[\s.\-]+(\d{6,})'
     type: str
 
 required_fields: [amount, due_date, policy_number]
 
 options:
-  currency: CHF
-  # Engine tries user formats first, then built-in fallbacks
+  currency: EUR
+  # Engine tries user formats first, then a built-in fallback list
   date_formats:
     - '%d.%m.%Y'
-    - '%d. %B %Y'             # "15. März 2024" (locale-dependent)
+    - '%d. %B %Y'             # "15. März 2024" — locale-dependent
   languages: [de]
 ```
 
-### Example 3 — Tarif 590 medical bill (Swiss healthcare)
+### Example 3 — Bank statement (with disambiguating exclusion)
 
-Demonstrates structural identifiers (GLN provider numbers, AHV patient numbers) — paperless-rules ships dedicated regex helpers for both.
-
-```yaml
-issuer: Praxis Dr. Meier
-document_type: Medical bill
-tags: [health, medical]
-
-keywords:
-  - Tarif 590
-  - GLN
-
-fields:
-  amount:
-    regex: 'Total\s+CHF\s+([\d''.,]+)'
-    type: float
-  date_of_service:
-    regex: 'Behandlungsdatum\s+(\d{2}\.\d{2}\.\d{4})'
-    type: date
-  provider_gln:
-    regex: '\b(7601\d{9})\b'           # Swiss healthcare provider ID
-    type: str
-  patient_ahv:
-    regex: '\b(756\.\d{4}\.\d{4}\.\d{2})\b'
-    type: str
-
-required_fields: [amount, date_of_service, provider_gln]
-
-options:
-  currency: CHF
-```
-
-### Example 4 — UBS bank statement (excluding card statements)
-
-Demonstrates `exclude_keywords` to differentiate a generic statement from a card statement that uses similar wording.
+Demonstrates `exclude_keywords` to differentiate a regular account statement from a credit-card statement that uses similar wording.
 
 ```yaml
-issuer: UBS Switzerland AG
+issuer: Initech Bank
 document_type: Bank statement
-tags: [bank, statement, ubs]
+tags: [bank, statement, initech]
 
 keywords:
-  - UBS
-  - Kontoauszug
+  - Initech Bank
+  - Account statement
 
 exclude_keywords:
-  - Kreditkartenabrechnung    # card statement — different rule applies
+  - Credit card statement     # different rule applies for those
 
 fields:
   iban:
-    regex: '\b(CH\d{2}\s?(?:\d{4}\s?){4}\d{1,2})\b'
+    regex: '\b([A-Z]{2}\d{2}\s?(?:[A-Z0-9]{4}\s?){3,7}[A-Z0-9]{0,4})\b'
     type: str
   period_end:
-    regex: 'Saldo per\s+(\d{2}\.\d{2}\.\d{4})'
+    regex: 'Balance as of\s+(\d{4}-\d{2}-\d{2})'
     type: date
   closing_balance:
-    regex: 'Saldo per[^\n]+CHF\s+([\d''.,-]+)'
+    regex: 'Closing balance[^\n]+([+\-]?[\d,.]+)'
     type: float
 
 required_fields: [iban, period_end]
 
 options:
-  currency: CHF
+  currency: USD
+  date_formats: ['%Y-%m-%d']
 ```
 
-### Example 5 — Generic invoice fallback (low-priority catch-all)
+### Example 4 — Generic invoice fallback (multi-currency catch-all)
 
-Place this at `99_generic_invoice.yml` so it runs after all issuer-specific rules. It only fires when no specific rule matched, since the runtime stops at the first match.
+Place this at `99_generic_invoice.yml` so it runs after issuer-specific rules. The runtime stops at the first match, so this fires only when nothing more specific matched.
 
 ```yaml
-issuer: ''                    # leave empty — paperless won't get a correspondent set
+issuer: ''                    # no specific correspondent
 document_type: Invoice
 tags: [unmatched-invoice]
 
 keywords:
-  - Invoice                   # English variant
-exclude_keywords: []
+  - Invoice
 
 fields:
   amount:
     regex:
-      - 'Total\s+(?:CHF|EUR|USD)\s+([\d''.,]+)'
-      - 'Amount due\s+(?:CHF|EUR|USD)\s+([\d''.,]+)'
+      - 'Total\s+(?:CHF|EUR|USD|GBP)\s+([\d''.,]+)'
+      - 'Amount due\s+(?:CHF|EUR|USD|GBP)\s+([\d''.,]+)'
+      - 'Grand total\s+(?:CHF|EUR|USD|GBP)\s+([\d''.,]+)'
     type: float
   date:
     regex: '\b(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})\b'
@@ -325,7 +294,7 @@ fields:
 required_fields: [amount]
 
 options:
-  currency: CHF
+  currency: EUR
 ```
 
 ### Field-spec syntax
@@ -334,33 +303,69 @@ Three equivalent forms for declaring `fields.<name>`:
 
 ```yaml
 fields:
-  amount: 'Total\s+CHF\s+([\d.]+)'         # bare string, type inferred from name
+  amount: 'Total\s+EUR\s+([\d.]+)'         # bare string, type inferred from name
   invoice_number:                          # list of patterns, first match wins
-    - 'Facture Nr\.\s*(\d+)'
-    - 'Invoice number\s*(\d+)'
+    - 'Invoice\s+number\s*(\d+)'
+    - 'Numéro de facture\s*(\d+)'
   date:                                    # full dict form
-    regex: 'du\s+(\d{2}\.\d{2}\.\d{4})'
+    regex: 'on\s+(\d{4}-\d{2}-\d{2})'
     type: date
 ```
 
 Type inference from the field name: substrings `amount`, `total`, `price`, `tva`, `vat`, `tax`, `montant` → `float`; `date`, `due`, `echeance`, `period`, `fällig` → `date`; otherwise `str`.
 
+### Field transforms
+
+Beyond capture-group extraction, the dict form supports two transforms:
+
+**`value:` — set a constant when the regex matches.** The pattern acts as a trigger; the captured text is ignored. Useful for boolean-ish flags or status fields:
+
+```yaml
+fields:
+  is_paid:
+    regex: '\bPAID\b'
+    value: 'yes'              # if the regex matches → "yes" (else: no match)
+    type: str
+  has_late_fee:
+    regex: ['Late fee', 'Penalty', 'Frais de retard']  # any of these triggers
+    value: 'true'
+    type: str
+```
+
+**`combine:` — run every pattern and concatenate the captures with a separator.** Useful when one piece of metadata is split across multiple lines:
+
+```yaml
+fields:
+  full_name:
+    regex:
+      - 'First name:\s*(\w+)'
+      - 'Last name:\s*(\w+)'
+    combine: ' '              # join captures with a space → "Alice Smith"
+    type: str
+```
+
+Partial matches are kept: if only the first regex hits, the field is still set (just with the one capture). Both transforms compose with `type` coercion — e.g. `value: '1.0'` with `type: float` writes `1.0` as a float custom field.
+
 ### Number coercion
 
-`float` fields handle Swiss quirks the OCR engine emits:
+`float` fields handle the common thousand-separator and decimal-point variations real OCR emits:
 
 ```
-1'234.50    → 1234.5     (ASCII apostrophe, Swiss canonical)
-1’234.50    → 1234.5     (typographic apostrophe)
-1ʼ234.50    → 1234.5     (modifier letter apostrophe)
-1 234.50    → 1234.5     (NBSP)
-89,50       → 89.5       (EU decimal comma)
-1.234,50    → 1234.5     (DE thousand-dot, comma-decimal)
+89.50       → 89.5      (plain dot decimal)
+89,50       → 89.5      (comma decimal)
+1'234.50    → 1234.5    (apostrophe thousand sep, dot decimal)
+1’234.50    → 1234.5    (typographic apostrophe)
+1ʼ234.50    → 1234.5    (modifier letter apostrophe — OCR artefact)
+1 234.50    → 1234.5    (NBSP thousand sep)
+1.234,50    → 1234.5    (dot-thousand, comma-decimal)
+1,234.50    → 1234.5    (comma-thousand, dot-decimal)
 ```
 
 When both `,` and `.` appear, the rightmost is the decimal separator and the other is stripped as a thousand separator.
 
 `date` fields try the user's `options.date_formats` first, then a built-in fallback list (`%d.%m.%Y`, `%d-%m-%Y`, `%d/%m/%Y`, `%Y-%m-%d`, `%d %B %Y`, …) and emit ISO `YYYY-MM-DD`.
+
+`options.currency` only affects the **monetary** custom-field value sent to paperless (e.g. `EUR1234.50`). The `regex` itself can match any currency token you want — `currency` is just the prefix added when writing back.
 
 ---
 
@@ -394,7 +399,7 @@ paperless-rules post-consume        # apply to $DOCUMENT_ID (paperless hook)
 paperless-rules apply <doc_id>      # one-off, useful for testing a rule
 paperless-rules apply <id> --dry-run
                                     # see the would-be PATCH, no write
-paperless-rules backfill --filter "correspondent:Swisscom"
+paperless-rules backfill --filter "correspondent:Acme"
                                     # apply rules to existing matching docs
 ```
 
@@ -431,16 +436,6 @@ tests/
 docker-compose.example.yml   drop-in for production
 docker-compose.test.yml      isolated stack for e2e tests
 ```
-
----
-
-## What's not in scope
-
-- No LLM integration, fallback, or "smart" inference.
-- No database. Flat YAML for rules, small JSON for poller state.
-- No user accounts or multi-tenancy. Single-user local tool.
-- No anonymization or PII detection.
-- No build pipeline — vanilla HTML/CSS/JS in a single file.
 
 ---
 

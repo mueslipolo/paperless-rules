@@ -13,7 +13,7 @@ from paperless_rules.engine import (
 )
 
 FIXTURES = Path(__file__).parent / "fixtures"
-SWISSCOM = (FIXTURES / "swisscom_invoice.txt").read_text(encoding="utf-8")
+ACME = (FIXTURES / "acme_invoice.txt").read_text(encoding="utf-8")
 
 
 # ── coercion ─────────────────────────────────────────────────────────
@@ -21,13 +21,13 @@ SWISSCOM = (FIXTURES / "swisscom_invoice.txt").read_text(encoding="utf-8")
 
 @pytest.mark.parametrize("raw,expected", [
     ("89.50", 89.5),
-    ("1'234.50", 1234.5),                # ASCII apostrophe (Swiss canonical)
-    ("1’234.50", 1234.5),           # typographic apostrophe
-    ("1ʼ234.50", 1234.5),           # modifier letter apostrophe (OCR)
-    ("1 234.50", 1234.5),           # NBSP
-    ("89,50", 89.5),                     # EU comma decimal
-    ("1.234,50", 1234.5),                # DE/FR thousand-dot, comma-decimal
-    ("1,234.50", 1234.5),                # US thousand-comma, dot-decimal
+    ("1'234.50", 1234.5),                # ASCII apostrophe thousand sep
+    ("1’234.50", 1234.5),                # typographic apostrophe
+    ("1ʼ234.50", 1234.5),                # modifier letter apostrophe (OCR)
+    ("1 234.50", 1234.5),                # NBSP
+    ("89,50", 89.5),                     # comma decimal
+    ("1.234,50", 1234.5),                # dot-thousand, comma-decimal
+    ("1,234.50", 1234.5),                # comma-thousand, dot-decimal
     ("-10.00", -10.0),
     ("not a number", None),
     ("", None),
@@ -63,13 +63,13 @@ def make_rule(**kw):
 
 
 @pytest.mark.parametrize("keywords,matched,missing", [
-    (["Swisscom", "Facture"], True, []),
-    (["Swisscom", "AbsentWord"], False, ["AbsentWord"]),
-    (["Swiss.om"], True, []),                # regex semantics, not literal
-    ([r"^Total à payer"], True, []),         # MULTILINE
+    (["Acme", "Facture"], True, []),
+    (["Acme", "AbsentWord"], False, ["AbsentWord"]),
+    (["Acm.", "Facture"], True, []),                    # regex semantics
+    ([r"^Total à payer"], True, []),                    # MULTILINE
 ])
 def test_keyword_matching(keywords, matched, missing):
-    r = extract_with_rule(SWISSCOM, make_rule(keywords=keywords))
+    r = extract_with_rule(ACME, make_rule(keywords=keywords))
     assert r["matched"] == matched
     assert r["missing_keywords"] == missing
 
@@ -79,25 +79,100 @@ def test_keyword_matching(keywords, matched, missing):
     (["Facture"], False, "Facture"),
 ])
 def test_exclude_keywords(excludes, matched, excluded_by):
-    r = extract_with_rule(SWISSCOM, make_rule(keywords=["Swisscom"], exclude_keywords=excludes))
+    r = extract_with_rule(ACME, make_rule(keywords=["Acme"], exclude_keywords=excludes))
     assert r["matched"] == matched
     assert r["excluded_by"] == excluded_by
 
 
 @pytest.mark.parametrize("fname,spec,expected_type,expected_value", [
-    ("amount", r"Total à payer\s+CHF\s+([\d'.,-]+)", "float", 1234.5),
+    ("amount", r"Total à payer\s+EUR\s+([\d ,-]+)", "float", 1234.5),
     ("date", r"Date d'émission\s+(\d{2}\.\d{2}\.\d{4})", "date", "2024-03-15"),
-    # list of patterns: first misses, second hits → first-match-wins semantics
+    # list of patterns: first misses, second hits → first-match-wins
     ("invoice_number", [r"NotPresent\s+(\d+)", r"Numéro de facture\s+(\d+)"], "str", "987654321"),
     # dict with explicit type override
     ("ref", {"regex": r"Numéro de client\s+(\d+)", "type": "str"}, "str", "1234567890"),
 ])
 def test_field_extraction(fname, spec, expected_type, expected_value):
-    f = extract_with_rule(SWISSCOM, make_rule(keywords=["Swisscom"], fields={fname: spec}))
+    f = extract_with_rule(ACME, make_rule(keywords=["Acme"], fields={fname: spec}))
     f = f["fields"][fname]
     assert f["ok"]
     assert f["type"] == expected_type
     assert f["value"] == expected_value
+
+
+# ── field transforms: value (constant on match) ─────────────────────
+
+
+def test_value_constant_on_match():
+    rule = make_rule(keywords=["Acme"], fields={
+        "is_invoice": {"regex": "Facture", "value": "yes", "type": "str"},
+    })
+    f = extract_with_rule(ACME, rule)["fields"]["is_invoice"]
+    assert f["ok"] and f["value"] == "yes"
+
+
+def test_value_constant_on_no_match():
+    rule = make_rule(keywords=["Acme"], fields={
+        "is_overdue": {"regex": "OVERDUE", "value": "yes", "type": "str"},
+    })
+    f = extract_with_rule(ACME, rule)["fields"]["is_overdue"]
+    assert not f["ok"]
+
+
+def test_value_constant_with_pattern_list():
+    # Constant is set when ANY pattern matches.
+    rule = make_rule(keywords=["Acme"], fields={
+        "category": {
+            "regex": ["Facture", "Invoice"],   # either trigger
+            "value": "billing",
+            "type": "str",
+        },
+    })
+    f = extract_with_rule(ACME, rule)["fields"]["category"]
+    assert f["ok"] and f["value"] == "billing"
+
+
+# ── field transforms: combine (concatenate captures) ────────────────
+
+
+def test_combine_captures_with_separator():
+    text = "First name: Alice\nLast name: Smith\n"
+    rule = make_rule(keywords=[], fields={
+        "full_name": {
+            "regex": [r"First name:\s*(\w+)", r"Last name:\s*(\w+)"],
+            "combine": " ",
+            "type": "str",
+        },
+    })
+    f = extract_with_rule(text, rule)["fields"]["full_name"]
+    assert f["ok"] and f["value"] == "Alice Smith"
+
+
+def test_combine_partial_match():
+    # Only the first regex matches — that capture is used alone.
+    text = "First name: Alice\n(no last name on this doc)"
+    rule = make_rule(keywords=[], fields={
+        "full_name": {
+            "regex": [r"First name:\s*(\w+)", r"Last name:\s*(\w+)"],
+            "combine": " ",
+            "type": "str",
+        },
+    })
+    f = extract_with_rule(text, rule)["fields"]["full_name"]
+    assert f["ok"] and f["value"] == "Alice"
+
+
+def test_combine_no_match_fails():
+    text = "Just some unrelated text\n"
+    rule = make_rule(keywords=[], fields={
+        "full_name": {
+            "regex": [r"First name:\s*(\w+)", r"Last name:\s*(\w+)"],
+            "combine": " ",
+            "type": "str",
+        },
+    })
+    f = extract_with_rule(text, rule)["fields"]["full_name"]
+    assert not f["ok"]
 
 
 # ── required_fields semantics ────────────────────────────────────────
@@ -105,55 +180,55 @@ def test_field_extraction(fname, spec, expected_type, expected_value):
 
 def test_default_all_fields_required():
     rule = make_rule(
-        keywords=["Swisscom"],
+        keywords=["Acme"],
         fields={
-            "amount": r"Total à payer\s+CHF\s+([\d'.,-]+)",
+            "amount": r"Total à payer\s+EUR\s+([\d ,-]+)",
             "missing": r"XYZ_does_not_match",
         },
     )
-    r = extract_with_rule(SWISSCOM, rule)
+    r = extract_with_rule(ACME, rule)
     assert r["matched"] and not r["required_ok"]
 
 
 def test_explicit_required_only():
     rule = make_rule(
-        keywords=["Swisscom"],
-        fields={"amount": r"Total à payer\s+CHF\s+([\d'.,-]+)", "opt": r"XYZ"},
+        keywords=["Acme"],
+        fields={"amount": r"Total à payer\s+EUR\s+([\d ,-]+)", "opt": r"XYZ"},
         required_fields=["amount"],
     )
-    assert extract_with_rule(SWISSCOM, rule)["required_ok"]
+    assert extract_with_rule(ACME, rule)["required_ok"]
 
 
 def test_empty_required_passes_with_keywords_alone():
-    rule = make_rule(keywords=["Swisscom"], fields={"missing": r"XYZ"}, required_fields=[])
-    assert extract_with_rule(SWISSCOM, rule)["required_ok"]
+    rule = make_rule(keywords=["Acme"], fields={"missing": r"XYZ"}, required_fields=[])
+    assert extract_with_rule(ACME, rule)["required_ok"]
 
 
 # ── error / edge cases ───────────────────────────────────────────────
 
 
 def test_invalid_regex_reports_error():
-    f = extract_with_rule(SWISSCOM, make_rule(
-        keywords=["Swisscom"], fields={"x": {"regex": "[unclosed", "type": "float"}},
+    f = extract_with_rule(ACME, make_rule(
+        keywords=["Acme"], fields={"x": {"regex": "[unclosed", "type": "float"}},
     ))["fields"]["x"]
     assert not f["ok"] and "invalid regex" in (f["error"] or "")
 
 
 def test_unknown_yaml_keys_ignored():
-    rule = make_rule(keywords=["Swisscom"])
+    rule = make_rule(keywords=["Acme"])
     rule["future_feature"] = {"some": "data"}
-    assert extract_with_rule(SWISSCOM, rule)["matched"]
+    assert extract_with_rule(ACME, rule)["matched"]
 
 
 def test_no_regex_in_dict_spec():
-    f = extract_with_rule(SWISSCOM, make_rule(
-        keywords=["Swisscom"], fields={"x": {"type": "float"}},
+    f = extract_with_rule(ACME, make_rule(
+        keywords=["Acme"], fields={"x": {"type": "float"}},
     ))["fields"]["x"]
     assert f["error"] == "no regex defined"
 
 
 def test_none_text_treated_as_empty():
-    assert not extract_with_rule(None, make_rule(keywords=["Swisscom"]))["matched"]  # type: ignore[arg-type]
+    assert not extract_with_rule(None, make_rule(keywords=["Acme"]))["matched"]  # type: ignore[arg-type]
 
 
 # ── load_rules ───────────────────────────────────────────────────────
@@ -182,11 +257,11 @@ def test_missing_dir_returns_empty(tmp_path):
 
 
 def test_first_matching_rule_wins():
-    a = ("01.yml", {"keywords": ["Swisscom", "AbsentKW"]})
-    b = ("99.yml", {"keywords": ["Swisscom"]})
-    result = find_matching_rule(SWISSCOM, [a, b])
+    a = ("01.yml", {"keywords": ["Acme", "AbsentKW"]})
+    b = ("99.yml", {"keywords": ["Acme"]})
+    result = find_matching_rule(ACME, [a, b])
     assert result is not None and result[0] == "99.yml"
 
 
 def test_no_match_returns_none():
-    assert find_matching_rule(SWISSCOM, [("x.yml", {"keywords": ["XYZ_no_match"]})]) is None
+    assert find_matching_rule(ACME, [("x.yml", {"keywords": ["XYZ_no_match"]})]) is None

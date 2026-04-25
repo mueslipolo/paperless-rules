@@ -13,9 +13,9 @@ import yaml
 Rule = dict[str, Any]
 ExtractionResult = dict[str, Any]
 
-# Swiss number quirks: ASCII apostrophe, typographic apostrophe, modifier
-# letter apostrophe (some OCR engines emit this), and NBSP all show up as
-# thousand separators in real CH invoices.
+# Thousand-separator characters seen in real OCR output: ASCII apostrophe,
+# typographic apostrophe, modifier letter apostrophe (some OCR engines emit
+# this in place of U+0027), and NBSP. Stripped before float parsing.
 _NOISE_RE = re.compile(r"[\s'’ʼ ]")
 
 _BUILTIN_DATES = [
@@ -36,11 +36,19 @@ def _infer_type(name: str) -> str:
     return "str"
 
 
-def _patterns_and_type(spec: Any, name: str) -> tuple[list[str], str]:
+def _spec_parts(spec: Any, name: str) -> tuple[list[str], str, dict[str, Any]]:
+    """Normalize a field-spec into (patterns, type, transform_opts).
+
+    transform_opts may contain:
+      `value`   — constant to assign when any pattern matches (regex acts
+                  as a trigger; the captured text is ignored)
+      `combine` — separator string; run every pattern and concatenate their
+                  captures with this separator (instead of first-match-wins)
+    """
     if isinstance(spec, str):
-        return [spec], _infer_type(name)
+        return [spec], _infer_type(name), {}
     if isinstance(spec, list):
-        return [str(p) for p in spec], _infer_type(name)
+        return [str(p) for p in spec], _infer_type(name), {}
     if isinstance(spec, dict):
         regex = spec.get("regex")
         patterns = (
@@ -48,8 +56,14 @@ def _patterns_and_type(spec: Any, name: str) -> tuple[list[str], str]:
             else [str(p) for p in regex] if isinstance(regex, list)
             else []
         )
-        return patterns, str(spec.get("type") or _infer_type(name))
-    return [], _infer_type(name)
+        ftype = str(spec.get("type") or _infer_type(name))
+        opts: dict[str, Any] = {}
+        if "value" in spec:
+            opts["value"] = spec["value"]
+        if "combine" in spec:
+            opts["combine"] = str(spec["combine"])
+        return patterns, ftype, opts
+    return [], _infer_type(name), {}
 
 
 def _coerce_float(raw: str) -> float | None:
@@ -117,7 +131,7 @@ def extract_with_rule(text: str, rule: Rule) -> ExtractionResult:
 
     fields: dict[str, dict[str, Any]] = {}
     for fname, fspec in fields_spec.items():
-        patterns, ftype = _patterns_and_type(fspec, fname)
+        patterns, ftype, opts = _spec_parts(fspec, fname)
         result: dict[str, Any] = {
             "ok": False, "raw": None, "value": None, "type": ftype,
             "pattern": None, "groups": None, "error": None,
@@ -127,7 +141,60 @@ def extract_with_rule(text: str, rule: Rule) -> ExtractionResult:
             fields[fname] = result
             continue
 
-        last_err = None
+        last_err: str | None = None
+
+        if "combine" in opts:
+            # Run every pattern, concatenate captures with the separator.
+            sep = opts["combine"]
+            captures: list[str] = []
+            first_pat = None
+            for pat in patterns:
+                try:
+                    m = re.search(pat, text, re.MULTILINE)
+                except re.error as e:
+                    last_err = f"invalid regex {pat!r}: {e}"
+                    continue
+                if not m:
+                    continue
+                cap = m.group(1) if m.groups() else m.group(0)
+                captures.append(cap)
+                if first_pat is None:
+                    first_pat = pat
+            if captures:
+                combined = sep.join(captures)
+                value, err = _coerce(combined, ftype, formats)
+                result.update(
+                    pattern=first_pat, raw=combined, value=value, error=err,
+                    ok=value is not None and err is None,
+                )
+            else:
+                result["error"] = last_err or "no match"
+            fields[fname] = result
+            continue
+
+        if "value" in opts:
+            # Regex is a trigger; the field's value is the constant.
+            for pat in patterns:
+                try:
+                    m = re.search(pat, text, re.MULTILINE)
+                except re.error as e:
+                    last_err = f"invalid regex {pat!r}: {e}"
+                    continue
+                if not m:
+                    continue
+                value, err = _coerce(str(opts["value"]), ftype, formats)
+                result.update(
+                    pattern=pat, raw=m.group(0),
+                    value=value if err is None else opts["value"],
+                    error=err, ok=err is None,
+                )
+                break
+            else:
+                result["error"] = last_err or "no match"
+            fields[fname] = result
+            continue
+
+        # Default: first match wins, capture group becomes value.
         for pat in patterns:
             try:
                 m = re.search(pat, text, re.MULTILINE)

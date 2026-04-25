@@ -329,12 +329,12 @@ const state = {
 };
 
 const PRESETS = [
-  ["CHF amount", String.raw`CHF\s*([\d'.,]+)`],
+  ["currency amount", String.raw`(?:CHF|EUR|USD|GBP)\s*([\d'.,]+)`],
   ["DD.MM.YYYY", String.raw`(\d{1,2}\.\d{1,2}\.\d{4})`],
-  ["Swiss IBAN", String.raw`(CH\d{2}\s?(?:\d{4}\s?){4}\d{1,2})`],
-  ["AHV / AVS", String.raw`(756\.\d{4}\.\d{4}\.\d{2})`],
-  ["GLN (medical)", String.raw`\b(7601\d{9})\b`],
-  ["Reference no.", String.raw`(?:Nr\.?|No\.?|Numéro|Référence)\s*([A-Z0-9-]{3,})`],
+  ["ISO date", String.raw`(\d{4}-\d{1,2}-\d{1,2})`],
+  ["IBAN", String.raw`([A-Z]{2}\d{2}(?:\s?[A-Z0-9]){11,30})`],
+  ["reference no.", String.raw`(?:Nr\.?|No\.?|Numéro|Référence)\s*([A-Z0-9-]{3,})`],
+  ["email", String.raw`([\w.+-]+@[\w.-]+\.[A-Za-z]{2,})`],
 ];
 
 // localStorage history, keyed per (rule, field). FIFO 10, no pinning.

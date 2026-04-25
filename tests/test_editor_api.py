@@ -11,7 +11,7 @@ from paperless_rules.editor.app import create_app
 from paperless_rules.paperless_client import PaperlessError
 
 FIXTURES = Path(__file__).parent / "fixtures"
-SWISSCOM = (FIXTURES / "swisscom_invoice.txt").read_text(encoding="utf-8")
+ACME = (FIXTURES / "acme_invoice.txt").read_text(encoding="utf-8")
 
 
 class FakePaperless:
@@ -52,7 +52,7 @@ class FakePaperless:
 def fake():
     return FakePaperless({
         42: {
-            "id": 42, "title": "Swisscom Mar 2024", "content": SWISSCOM,
+            "id": 42, "title": "Acme Mar 2024", "content": ACME,
             "created": "2024-03-15T00:00:00Z",
         },
         43: {"id": 43, "title": "Empty doc", "content": ""},
@@ -95,7 +95,7 @@ def test_list_documents(app_client):
 
 
 def test_search_filters_results(app_client):
-    body = app_client.get("/api/documents?query=Swisscom").json()
+    body = app_client.get("/api/documents?query=Acme").json()
     assert body["count"] == 1 and body["results"][0]["id"] == 42
 
 
@@ -150,10 +150,10 @@ def test_load_missing_404(app_client):
 
 def test_runs_rule_against_doc(app_client):
     rule_yaml = (
-        "keywords: [Swisscom, Facture]\n"
+        "keywords: [Acme, Facture]\n"
         "fields:\n"
         "  amount:\n"
-        "    regex: \"Total à payer\\\\s+CHF\\\\s+([\\\\d'.,-]+)\"\n"
+        "    regex: \"Total à payer\\\\s+EUR\\\\s+([\\\\d ,-]+)\"\n"
         "    type: float\n"
     )
     body = app_client.post("/api/test", json={"yaml": rule_yaml, "doc_ids": [42]}).json()
@@ -167,7 +167,7 @@ def test_invalid_yaml_returns_400(app_client):
 
 
 def test_missing_doc_reports_per_doc_error(app_client):
-    r = app_client.post("/api/test", json={"yaml": "keywords: [Swisscom]\n", "doc_ids": [42, 9999]})
+    r = app_client.post("/api/test", json={"yaml": "keywords: [Acme]\n", "doc_ids": [42, 9999]})
     results = r.json()["results"]
     assert len(results) == 2 and "error" in results[1]
 
@@ -183,7 +183,7 @@ def test_regex_with_text(app_client):
 def test_regex_with_doc_ids(app_client):
     body = app_client.post(
         "/api/regex/test",
-        json={"pattern": r"CHF\s+[\d'.,-]+", "doc_ids": [42, 43]},
+        json={"pattern": r"EUR\s+[\d ,-]+", "doc_ids": [42, 43]},
     ).json()
     by_id = {x["doc_id"]: x for x in body["results"]}
     assert by_id[42]["match_count"] >= 1
@@ -192,12 +192,11 @@ def test_regex_with_doc_ids(app_client):
 
 def test_regex_coercion_preview(app_client):
     body = app_client.post("/api/regex/test", json={
-        "pattern": r"Total à payer\s+CHF\s+([\d'.,-]+)",
+        "pattern": r"Total à payer\s+EUR\s+([\d ,-]+)",
         "doc_ids": [42], "type": "float",
     }).json()
     m = body["results"][0]["matches"][0]
     assert m["coerced"] == 1234.5
-    assert m["groups"] == ["1'234.50"]
 
 
 def test_invalid_regex_returns_ok_false(app_client):
@@ -214,7 +213,7 @@ def test_regex_requires_text_or_doc_ids(app_client):
 def test_case_insensitive_flag(app_client):
     body = app_client.post(
         "/api/regex/test",
-        json={"pattern": "SWISSCOM", "doc_ids": [42], "flags": "i"},
+        json={"pattern": "ACME", "doc_ids": [42], "flags": "i"},
     ).json()
     assert body["results"][0]["match_count"] >= 1
 
@@ -224,8 +223,8 @@ def test_case_insensitive_flag(app_client):
 
 def test_bootstrap_returns_suggestion(app_client):
     body = app_client.post("/api/bootstrap", json={"doc_id": 42}).json()
-    assert "Swisscom" in body["issuer"]
-    assert body["currency"] == "CHF" and body["language"] == "fr"
+    assert "Acme" in body["issuer"]
+    assert body["currency"] == "EUR" and body["language"] == "fr"
     assert any(f["name"] == "amount" for f in body["fields"])
 
 

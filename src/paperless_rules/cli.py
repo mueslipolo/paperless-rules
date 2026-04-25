@@ -173,7 +173,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "backfill", help="apply rules to every document matching a query"
     )
     bf_p.add_argument(
-        "--filter", default="", help="paperless query string (e.g. 'correspondent:Swisscom')"
+        "--filter", default="", help="paperless query string (e.g. 'correspondent:Acme')"
     )
     bf_p.add_argument("--dry-run", action="store_true")
     return p

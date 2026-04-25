@@ -25,7 +25,7 @@ services:
       POLL_INTERVAL_SECONDS: "60"
       LOG_LEVEL: INFO
       # Set TZ to your locale so log timestamps match your other containers.
-      TZ: Europe/Zurich
+      TZ: UTC
     volumes:
       - ./paperless-rules/rules:/data/rules
       - ./paperless-rules/state:/data/state

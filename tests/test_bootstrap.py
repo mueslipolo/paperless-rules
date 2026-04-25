@@ -10,24 +10,24 @@ from paperless_rules.bootstrap import bootstrap_from_text, render_yaml
 from paperless_rules.engine import extract_with_rule
 
 FIXTURES = Path(__file__).parent / "fixtures"
-SWISSCOM = (FIXTURES / "swisscom_invoice.txt").read_text(encoding="utf-8")
+ACME = (FIXTURES / "acme_invoice.txt").read_text(encoding="utf-8")
 
 
 @pytest.fixture(scope="module")
 def sug():
-    return bootstrap_from_text(SWISSCOM)
+    return bootstrap_from_text(ACME)
 
 
 # ── issuer / language / currency ─────────────────────────────────────
 
 
-def test_swisscom_issuer_detected(sug):
-    assert "Swisscom" in sug["issuer"] and "SA" in sug["issuer"]
+def test_acme_issuer_detected(sug):
+    assert "Acme" in sug["issuer"] and "SARL" in sug["issuer"]
 
 
 def test_skips_generic_header():
-    text = "FACTURE\nMy Company AG\nKönigstrasse 1\n8000 Zürich\n"
-    assert "AG" in bootstrap_from_text(text)["issuer"]
+    text = "INVOICE\nGlobex Industries Inc\n123 Main Street\n10001 New York\n"
+    assert "Inc" in bootstrap_from_text(text)["issuer"]
 
 
 def test_no_company_falls_back_to_longest():
@@ -39,8 +39,8 @@ def test_empty_text():
 
 
 @pytest.mark.parametrize("text,expected", [
-    (SWISSCOM, "fr"),
-    ("Rechnung der Schweizerischen Post\nDie Rechnung ist fällig am 30.04.2024.\n", "de"),
+    (ACME, "fr"),
+    ("Rechnung der Globex GmbH\nDie Rechnung ist fällig am 30.04.2024.\n", "de"),
     ("The invoice is due on 2024-04-30. Please pay by the due date.\n", "en"),
 ])
 def test_language_detection(text, expected):
@@ -48,9 +48,9 @@ def test_language_detection(text, expected):
 
 
 @pytest.mark.parametrize("text,expected", [
-    (SWISSCOM, "CHF"),
-    ("Total: EUR 100.00\n", "EUR"),
-    ("No currency code in this text.\n", "CHF"),
+    (ACME, "EUR"),
+    ("Total: USD 100.00\n", "USD"),
+    ("No currency code in this text.\n", "EUR"),
 ])
 def test_currency_detection(text, expected):
     assert bootstrap_from_text(text)["currency"] == expected
@@ -71,7 +71,7 @@ def test_first_two_keywords_pre_checked(sug):
 
 def test_keywords_include_issuer_or_doctype(sug):
     phrases = " | ".join(k["phrase"].lower() for k in sug["keywords"])
-    assert "swisscom" in phrases or "facture" in phrases
+    assert "acme" in phrases or "facture" in phrases
 
 
 def test_no_stop_only_phrases():
@@ -94,9 +94,9 @@ def test_amount_value_has_digit(sug):
     assert any(c.isdigit() for c in amount["sample_value"])
 
 
-def test_iban_starts_with_ch(sug):
+def test_iban_starts_with_country_code(sug):
     iban = next(f for f in sug["fields"] if f["name"] == "iban")
-    assert iban["sample_value"].startswith("CH")
+    assert iban["sample_value"][:2].isalpha() and iban["sample_value"][:2].isupper()
 
 
 def test_at_most_six_fields(sug):
@@ -108,30 +108,22 @@ def test_canonical_fields_pre_suggested(sug):
     assert "amount" in suggested and "date" in suggested
 
 
-@pytest.mark.parametrize("text,expected", [
-    ("Patient AHV: 756.1234.5678.90\n", "ahv"),
-    ("Provider GLN 7601000123456 issued report\n", "gln"),
-])
-def test_structural_id_pattern(text, expected):
-    assert expected in {f["name"] for f in bootstrap_from_text(text)["fields"]}
-
-
 # ── filename ─────────────────────────────────────────────────────────
 
 
-def test_swisscom_filename(sug):
-    assert sug["filename_suggestion"] == "01_swisscom_invoice.yml"
+def test_acme_filename(sug):
+    assert sug["filename_suggestion"] == "01_acme_telecom_invoice.yml"
 
 
 def test_strips_legal_suffix():
     assert "corp" not in bootstrap_from_text(
-        "Acme Corp\nInvoice 1234\nAmount: CHF 100\n"
+        "Globex Corp\nInvoice 1234\nAmount: USD 100\n"
     )["filename_suggestion"]
 
 
 def test_reminder_doctype():
     assert "reminder" in bootstrap_from_text(
-        "Acme AG\nMahnung\nÜberfällig CHF 100\n"
+        "Globex Inc\nReminder\nOverdue USD 100\n"
     )["filename_suggestion"]
 
 
@@ -165,7 +157,7 @@ def test_user_overrides_keywords_and_fields(sug):
 
 def test_engine_accepts_skeleton_without_crashing(sug):
     parsed = yaml.safe_load(render_yaml(sug))
-    r = extract_with_rule(SWISSCOM, parsed)
+    r = extract_with_rule(ACME, parsed)
     assert r["matched"] and not r["required_ok"]
 
 

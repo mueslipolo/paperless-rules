@@ -54,7 +54,7 @@ services:
       PAPERLESS_ADMIN_USER: admin
       PAPERLESS_ADMIN_PASSWORD: admin
       PAPERLESS_OCR_LANGUAGE: deu+fra+eng
-      PAPERLESS_TIME_ZONE: Europe/Zurich
+      PAPERLESS_TIME_ZONE: UTC
       # Poll consume dir every second so tests don't have to wait long.
       PAPERLESS_CONSUMER_POLLING: "1"
       USERMAP_UID: "1000"
