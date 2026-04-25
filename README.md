@@ -8,8 +8,6 @@ A web editor + runtime that learns the patterns of your recurring senders (Swiss
 
 paperless-ngx has built-in matching rules but each only assigns one piece of metadata. paperless-rules adds **two-stage matching**: a rule identifies a document by keywords, then *because* it matched, a bundle of regexes extract amounts / dates / reference numbers into custom fields. For predictable templates (~70 % of typical household admin), this beats an LLM-based approach on accuracy, speed, cost, and auditability.
 
-The full design rationale is in [`PROJECT.md`](./PROJECT.md).
-
 ---
 
 ## Quick start
@@ -432,14 +430,11 @@ tests/
   e2e/                 e2e tests (docker/podman compose)
 docker-compose.example.yml   drop-in for production
 docker-compose.test.yml      isolated stack for e2e tests
-PROJECT.md           design spec
 ```
 
 ---
 
 ## What's not in scope
-
-By design (see [`PROJECT.md`](./PROJECT.md) §14):
 
 - No LLM integration, fallback, or "smart" inference.
 - No database. Flat YAML for rules, small JSON for poller state.

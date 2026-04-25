@@ -2,7 +2,7 @@
 name = "paperless-rules"
 version = "0.1.0"
 description = "Rule-based document classification and extraction for paperless-ngx"
-readme = "PROJECT.md"
+readme = "README.md"
 license = { text = "Apache-2.0" }
 authors = [{ name = "Yves" }]
 requires-python = ">=3.11"

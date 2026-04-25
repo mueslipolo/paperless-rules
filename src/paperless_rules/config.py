@@ -1,9 +1,4 @@
-"""Environment-driven configuration for paperless-rules.
-
-Single source of truth for env-derived settings. Both the editor (FastAPI app)
-and the runtime (post-consume / poller) construct a Config from the
-environment at startup. See PROJECT.md section 12 for the documented vars.
-"""
+"""Environment-driven configuration. See .env.example for the full var list."""
 
 from __future__ import annotations
 

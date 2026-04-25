@@ -8,7 +8,7 @@
 #
 # To use post_consume mode instead, set RUNTIME_MODE=post_consume and wire
 # PAPERLESS_POST_CONSUME_SCRIPT in your paperless container to invoke this
-# project's CLI per consumed document — see PROJECT.md §10.
+# project's CLI per consumed document — see the README.
 
 services:
   paperless-rules:
