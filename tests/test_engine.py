@@ -175,6 +175,168 @@ def test_combine_no_match_fails():
     assert not f["ok"]
 
 
+# ── field transforms: default (universal fallback) ──────────────────
+
+
+@pytest.mark.parametrize("spec,expected", [
+    # Default fires for capture-mode misses
+    ({"regex": "DOES_NOT_MATCH_XYZ", "default": "fallback", "type": "str"}, "fallback"),
+    # Default fires for value-mode misses
+    ({"regex": "DOES_NOT_MATCH_XYZ", "value": "yes", "default": "no", "type": "str"}, "no"),
+    # Default fires for combine misses
+    ({"regex": ["XYZ_a", "XYZ_b"], "combine": " ", "default": "n/a", "type": "str"}, "n/a"),
+    # Default fires for match misses
+    ({"match": [{"regex": "XYZ", "value": "p"}], "default": "unknown", "type": "str"}, "unknown"),
+])
+def test_default_fallback_across_modes(spec, expected):
+    rule = make_rule(keywords=[], fields={"f": spec})
+    f = extract_with_rule(ACME, rule)["fields"]["f"]
+    assert f["ok"] and f["value"] == expected
+
+
+def test_default_not_used_when_match_succeeds():
+    rule = make_rule(keywords=[], fields={
+        "is_invoice": {"regex": "Facture", "value": "yes", "default": "no", "type": "str"},
+    })
+    f = extract_with_rule(ACME, rule)["fields"]["is_invoice"]
+    assert f["value"] == "yes"
+
+
+# ── field transforms: match (multi-arm enumeration) ─────────────────
+
+
+def test_match_first_arm_wins():
+    rule = make_rule(keywords=[], fields={
+        "status": {
+            "match": [
+                {"regex": r"\bFacture\b",  "value": "billing"},
+                {"regex": r"\bRappel\b",   "value": "reminder"},
+            ],
+            "type": "str",
+        },
+    })
+    f = extract_with_rule(ACME, rule)["fields"]["status"]
+    assert f["ok"] and f["value"] == "billing"
+
+
+def test_match_first_arm_misses_second_wins():
+    text = "OVERDUE notice — please pay\n"
+    rule = make_rule(keywords=[], fields={
+        "status": {
+            "match": [
+                {"regex": "PAID",    "value": "paid"},
+                {"regex": "OVERDUE", "value": "overdue"},
+            ],
+            "type": "str",
+        },
+    })
+    f = extract_with_rule(text, rule)["fields"]["status"]
+    assert f["value"] == "overdue"
+
+
+def test_match_no_arm_matches_fails():
+    rule = make_rule(keywords=[], fields={
+        "status": {
+            "match": [{"regex": "XYZ_no_match", "value": "anything"}],
+            "type": "str",
+        },
+    })
+    f = extract_with_rule(ACME, rule)["fields"]["status"]
+    assert not f["ok"]
+
+
+# ── field transforms: pick (first/last/Nth match) ───────────────────
+
+
+@pytest.mark.parametrize("pick,expected", [
+    ("first", "01.03.2024"),                # earliest date in fixture
+    ("last", "14.04.2024"),                 # latest date (Échéance)
+    (0, "01.03.2024"),
+    (-1, "14.04.2024"),
+])
+def test_pick_chooses_match_position(pick, expected):
+    rule = make_rule(keywords=[], fields={
+        "d": {
+            "regex": r"(\d{2}\.\d{2}\.\d{4})",
+            "pick": pick,
+            "type": "str",                  # str so we see the raw match, not coerced
+        },
+    })
+    f = extract_with_rule(ACME, rule)["fields"]["d"]
+    assert f["ok"] and f["value"] == expected
+
+
+def test_pick_out_of_range_fails():
+    rule = make_rule(keywords=[], fields={
+        "d": {"regex": r"(\d{2}\.\d{2}\.\d{4})", "pick": 99, "type": "str"},
+    })
+    f = extract_with_rule(ACME, rule)["fields"]["d"]
+    assert not f["ok"] and "out of range" in (f["error"] or "")
+
+
+# ── field transforms: map (lookup table) ────────────────────────────
+
+
+def test_map_substitutes_known_value():
+    text = "Country: DE\n"
+    rule = make_rule(keywords=[], fields={
+        "country": {
+            "regex": r"Country:\s*(\w+)",
+            "map": {"DE": "Germany", "FR": "France"},
+            "type": "str",
+        },
+    })
+    f = extract_with_rule(text, rule)["fields"]["country"]
+    assert f["ok"] and f["value"] == "Germany"
+
+
+def test_map_passes_through_unknown_value():
+    text = "Country: ZZ\n"
+    rule = make_rule(keywords=[], fields={
+        "country": {
+            "regex": r"Country:\s*(\w+)",
+            "map": {"DE": "Germany"},
+            "type": "str",
+        },
+    })
+    f = extract_with_rule(text, rule)["fields"]["country"]
+    assert f["ok"] and f["value"] == "ZZ"  # no map entry → original
+
+
+# ── field transforms: aggregate (sum/count/min/max) ─────────────────
+
+
+@pytest.mark.parametrize("op,expected", [
+    ("sum",   35.5),
+    ("min",    5.0),
+    ("max",   20.5),
+    ("count",  3),
+])
+def test_aggregate_over_line_items(op, expected):
+    text = "Item A: $10.00\nItem B: $20.50\nItem C: $5.00\n"
+    rule = make_rule(keywords=[], fields={
+        "agg": {"regex": r"\$([\d.]+)", "aggregate": op, "type": "float"},
+    })
+    f = extract_with_rule(text, rule)["fields"]["agg"]
+    assert f["ok"] and abs(f["value"] - expected) < 0.001
+
+
+def test_aggregate_count_with_zero_matches_succeeds():
+    rule = make_rule(keywords=[], fields={
+        "agg": {"regex": r"DOES_NOT_MATCH_XYZ", "aggregate": "count", "type": "float"},
+    })
+    f = extract_with_rule(ACME, rule)["fields"]["agg"]
+    assert f["ok"] and f["value"] == 0
+
+
+def test_aggregate_sum_with_zero_matches_fails_unless_default():
+    rule = make_rule(keywords=[], fields={
+        "agg": {"regex": r"XYZ_no_match", "aggregate": "sum", "default": "0", "type": "float"},
+    })
+    f = extract_with_rule(ACME, rule)["fields"]["agg"]
+    assert f["ok"] and f["value"] == 0.0  # default fallback applies
+
+
 # ── required_fields semantics ────────────────────────────────────────
 
 

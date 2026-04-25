@@ -263,6 +263,17 @@ input:focus, textarea:focus, select:focus { outline: none; border-color: var(--i
         <button id="yaml-toggle">▶ yaml</button>
         <input type="text" id="filename-input" placeholder="01_rule.yml">
         <span class="sep">|</span>
+        <select id="snippet-select" title="insert a transform snippet at the cursor">
+          <option value="">+ transform ▼</option>
+          <option value="default">default — fallback when no match</option>
+          <option value="match">match — multi-arm enumeration</option>
+          <option value="pick">pick — first/last/Nth match</option>
+          <option value="map">map — lookup table</option>
+          <option value="aggregate">aggregate — sum/count/min/max</option>
+          <option value="value">value — constant on match</option>
+          <option value="combine">combine — concat captures</option>
+        </select>
+        <span class="sep">|</span>
         <span id="yaml-status" class="muted">—</span>
         <span class="sep">|</span>
         <span id="line-count" class="muted">0 lines</span>
@@ -336,6 +347,35 @@ const PRESETS = [
   ["reference no.", String.raw`(?:Nr\.?|No\.?|Numéro|Référence)\s*([A-Z0-9-]{3,})`],
   ["email", String.raw`([\w.+-]+@[\w.-]+\.[A-Za-z]{2,})`],
 ];
+
+// YAML snippets for the transform dropdown. Indented to drop in under a
+// field block (`fields.<name>:`) — the user pastes after the `regex:` /
+// `type:` lines and edits the placeholders.
+const SNIPPETS = {
+  default: `    default: 'fallback value'\n`,
+  match:
+    `    match:\n` +
+    `      - { regex: 'PATTERN_A', value: alpha }\n` +
+    `      - { regex: 'PATTERN_B', value: beta }\n`,
+  pick: `    pick: last        # first | last | 0 | 1 | -1\n`,
+  map:
+    `    map:\n` +
+    `      KEY_A: 'mapped value A'\n` +
+    `      KEY_B: 'mapped value B'\n`,
+  aggregate: `    aggregate: sum   # sum | count | min | max\n`,
+  value: `    value: 'constant when regex matches'\n`,
+  combine: `    combine: ' '       # separator joining captures from each pattern\n`,
+};
+
+function insertAtCursor(textarea, text) {
+  const start = textarea.selectionStart;
+  const end = textarea.selectionEnd;
+  const before = textarea.value.slice(0, start);
+  const after = textarea.value.slice(end);
+  textarea.value = before + text + after;
+  textarea.focus();
+  textarea.selectionStart = textarea.selectionEnd = start + text.length;
+}
 
 // localStorage history, keyed per (rule, field). FIFO 10, no pinning.
 const HKEY = (f, fld) => `paperless-rules:regex-history:${f || "_unsaved"}:${fld || "_default"}`;
@@ -797,6 +837,12 @@ function wire() {
   });
   $("#yaml-editor").addEventListener("input", debounce(renderYAMLStatus, 200));
   $("#filename-input").addEventListener("input", e => { state.currentFilename = e.target.value; });
+  $("#snippet-select").addEventListener("change", e => {
+    const snippet = SNIPPETS[e.target.value];
+    if (snippet) insertAtCursor($("#yaml-editor"), snippet);
+    e.target.value = "";  // reset the dropdown
+    renderYAMLStatus();
+  });
   $("#btn-new").addEventListener("click", () => {
     if (!confirm("discard the current rule?")) return;
     $("#yaml-editor").value = "";

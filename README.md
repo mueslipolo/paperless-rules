@@ -316,23 +316,111 @@ Type inference from the field name: substrings `amount`, `total`, `price`, `tva`
 
 ### Field transforms
 
-Beyond capture-group extraction, the dict form supports two transforms:
+Beyond simple capture-group extraction, the dict form supports a set of transforms. **Modes are mutually exclusive** — precedence `match > aggregate > combine > value > default-extract` — and `default`, `pick`, `map` compose with the relevant modes as noted below.
 
-**`value:` — set a constant when the regex matches.** The pattern acts as a trigger; the captured text is ignored. Useful for boolean-ish flags or status fields:
+The editor's YAML drawer has a **`+ transform ▼`** dropdown that inserts a starter snippet for any of these.
+
+#### `default` — fallback when nothing matches
+
+Universal modifier. If the field's pattern (or whole transform chain) doesn't produce a value, the constant in `default:` is used instead, and the field counts as successfully extracted. Without it, a missing pattern fails the field and disqualifies the rule when listed in `required_fields`.
 
 ```yaml
 fields:
   is_paid:
     regex: '\bPAID\b'
-    value: 'yes'              # if the regex matches → "yes" (else: no match)
-    type: str
-  has_late_fee:
-    regex: ['Late fee', 'Penalty', 'Frais de retard']  # any of these triggers
-    value: 'true'
+    value: yes
+    default: no                # nothing matched → "no" (no error)
     type: str
 ```
 
-**`combine:` — run every pattern and concatenate the captures with a separator.** Useful when one piece of metadata is split across multiple lines:
+#### `match` — multi-arm enumeration
+
+A list of `{regex, value}` alternatives. The first arm whose regex matches wins; its `value` becomes the field. Subsumes the `value` form for the multi-arm case. Composes with `default`.
+
+```yaml
+fields:
+  status:
+    match:
+      - { regex: '\bPAID\b',     value: paid }
+      - { regex: '\bOVERDUE\b',  value: overdue }
+      - { regex: '\bPENDING\b',  value: pending }
+    default: unknown
+    type: str
+```
+
+Real use: invoice status, document classification (refund/invoice/credit-note), payment-method detection.
+
+#### `pick` — choose first / last / Nth match
+
+Modifier on the default-extract mode. Collects all matches of every pattern across the document, sorts by position, and picks one. Composes with `default` and `map`. Default behaviour without `pick` is `first` (cheapest path — short-circuits at the first matching pattern).
+
+```yaml
+fields:
+  last_payment_date:
+    regex: '\b(\d{2}\.\d{2}\.\d{4})\b'
+    pick: last                 # latest date in the doc
+    type: date
+
+  closing_balance:
+    regex: 'EUR\s+([\d.,]+)'
+    pick: -1                   # last EUR amount on the page
+    type: float
+```
+
+`pick` accepts `first`, `last`, or any integer (`0` = first, `-1` = last, `1` = second, …).
+
+#### `map` — lookup table
+
+Applied to the captured value. If the captured string is a key in `map`, the mapped value is used; otherwise the original capture is kept. Composes with default-extract, `pick`, `combine`. Useful for normalising codes to canonical names.
+
+```yaml
+fields:
+  country:
+    regex: 'Origin:\s*(\w+)'
+    map:
+      DE: Germany
+      FR: France
+      NL: Netherlands
+    type: str
+```
+
+If the document says `Origin: ZZ` and `ZZ` isn't in the map, the field is set to `"ZZ"` (no error).
+
+#### `aggregate` — sum / count / min / max across all matches
+
+Runs every pattern, collects every match, applies the operation. Useful for line-item documents where the printed total is OCR-garbled but the items are clean.
+
+```yaml
+fields:
+  line_item_total:
+    regex: 'Item\s+\$([\d.,]+)'
+    aggregate: sum             # sum all line-item amounts
+    type: float
+
+  num_charges:
+    regex: '^Charge'
+    aggregate: count           # number of "Charge" lines
+    type: float
+```
+
+`count` always succeeds (returns 0 with no matches). `sum` / `min` / `max` fail without numeric matches unless `default` is set.
+
+#### `value` — constant on any match (one-arm shorthand for `match`)
+
+A simpler form when you only need a single arm: regex is a trigger, the constant in `value:` becomes the field. Composes with `default`.
+
+```yaml
+fields:
+  has_warranty:
+    regex: '(?i)\bwarranty\b'  # case-insensitive trigger
+    value: yes
+    default: no
+    type: str
+```
+
+#### `combine` — concatenate captures from multiple patterns
+
+Runs every pattern and joins the captures with a separator. Partial matches are kept (a missing pattern doesn't fail the field, just contributes nothing). Composes with `default`, `map`.
 
 ```yaml
 fields:
@@ -340,11 +428,39 @@ fields:
     regex:
       - 'First name:\s*(\w+)'
       - 'Last name:\s*(\w+)'
-    combine: ' '              # join captures with a space → "Alice Smith"
+    combine: ' '
     type: str
 ```
 
-Partial matches are kept: if only the first regex hits, the field is still set (just with the one capture). Both transforms compose with `type` coercion — e.g. `value: '1.0'` with `type: float` writes `1.0` as a float custom field.
+#### Composition example
+
+A realistic field that uses several transforms together:
+
+```yaml
+fields:
+  payment_status:
+    match:
+      - { regex: '\bPAID\b',     value: paid }
+      - { regex: '\bOVERDUE\b',  value: overdue }
+      - { regex: '(?i)pending|in process', value: pending }
+    default: unknown
+    type: str
+
+  total:
+    regex: 'Total\s+EUR\s+([\d.,]+)'
+    pick: last                  # if the total appears multiple times, take the last one
+    default: '0.00'             # don't break the rule if total is missing
+    type: float
+
+  origin_country:
+    regex: 'Country:\s*(\w{2})'
+    map:
+      DE: Germany
+      FR: France
+    type: str
+```
+
+All transforms compose with `type` coercion — e.g. `value: '1.0'` with `type: float` writes `1.0` as a numeric custom field.
 
 ### Number coercion
 
