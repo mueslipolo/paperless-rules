@@ -959,24 +959,33 @@ async function showBootstrap() {
   catch (e) { alert(`bootstrap failed: ${e.message}`); return; }
   state.bootstrapSuggestion = sug;
   $("#bootstrap-body").innerHTML = `
-    <div class="modal-section">
-      <h3>detected issuer</h3>
-      <input type="text" id="bs-issuer" value="${escAttr(sug.issuer)}">
+    <div class="muted" style="font-size:11px;margin-bottom:12px">
+      A rule describes a <em>kind of document</em>, not a specific sender.
+      The same template can come from many issuers — sender-specific narrowing
+      goes into the match regex itself.
     </div>
     <div class="modal-section">
-      <h3>match regex — single regex; rule fires when this matches the doc</h3>
+      <h3>rule name</h3>
+      <input type="text" id="bs-filename" value="${escAttr(sug.filename_suggestion)}">
+    </div>
+    <div class="modal-section">
+      <h3>match regex — fires when this matches the doc</h3>
       <input type="text" id="bs-match" value="${escAttr(sug.match || "")}">
       <div class="muted" style="font-size:10px;margin-top:4px">
-        evaluated with multiline + dotall — <code>.</code> spans newlines
+        evaluated with multiline + dotall. Make it specific —
+        <code>"Invoice"</code> is too generic; <code>"Acme Corp.*?Invoice"</code>
+        anchors to a particular template.
       </div>
     </div>
     <div class="modal-section">
-      <h3>filename</h3>
-      <input type="text" id="bs-filename" value="${escAttr(sug.filename_suggestion)}">
+      <h3>exclude regex — disqualifies if matched (optional)</h3>
+      <input type="text" id="bs-exclude" value="${escAttr(sug.exclude || "")}">
     </div>
     <div class="muted" style="font-size:11px;margin-top:8px">
-      Fields are added in the YAML drawer after generating — use the presets
-      sidebar (CHF amount, DD.MM.YYYY, IBAN…) for the regex shapes.
+      Fields are added in the YAML drawer after generating. Reserved field
+      names (<code>correspondent</code>, <code>document_type</code>,
+      <code>tags</code>, <code>title</code>) write to paperless built-ins;
+      everything else becomes a custom field.
     </div>`;
   $("#bootstrap-modal").hidden = false;
 }
@@ -984,21 +993,22 @@ async function showBootstrap() {
 function generateRuleFromBootstrap() {
   const sug = state.bootstrapSuggestion;
   if (!sug) return;
-  const issuer = $("#bs-issuer").value;
-  const match = $("#bs-match").value;
   const filename = $("#bs-filename").value;
+  const match = $("#bs-match").value;
+  const exclude = $("#bs-exclude").value;
 
   const q = s => s === "" ? "''" :
     /^[A-Za-z][A-Za-z0-9 _.\-/()]*$/.test(s) && !/[:#]/.test(s)
       ? s : `'${String(s).replace(/'/g, "''")}'`;
   const y =
-    `issuer: ${q(issuer)}\n` +
     `# MATCH — single regex; rule fires when this matches the doc\n` +
     `match: ${q(match)}\n` +
-    `exclude: ''\n` +
-    `# FIELDS — per-field regexes that extract paperless metadata\n` +
+    `exclude: ${q(exclude)}\n` +
+    `# FIELDS — reserved names (correspondent, document_type, tags, title)\n` +
+    `# write to paperless built-ins; anything else becomes a custom field.\n` +
+    `# Forms: regex / value / template (with {name} placeholders).\n` +
     `fields: {}\n` +
-    `required_fields: []\n` +
+    `required: []\n` +
     `options:\n` +
     `  currency: ${q(sug.currency || "EUR")}\n` +
     `  date_formats:\n    - '%d.%m.%Y'\n` +

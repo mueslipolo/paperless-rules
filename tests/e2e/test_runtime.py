@@ -25,11 +25,12 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 def _acme_rule_yaml() -> str:
     return (
-        "issuer: Acme Télécom (Europe) SARL\n"
-        "document_type: Invoice\n"
-        "tags: [telecom, monthly]\n"
         "match: Acme\n"
+        "exclude: ''\n"
         "fields:\n"
+        "  correspondent: { value: 'Acme Télécom (Europe) SARL' }\n"
+        "  document_type: { value: Invoice }\n"
+        "  tags: { value: [telecom, monthly] }\n"
         "  amount:\n"
         '    regex: "Total à payer\\\\s+EUR\\\\s+([\\\\d ,-]+)"\n'
         "    type: float\n"
@@ -39,7 +40,7 @@ def _acme_rule_yaml() -> str:
         "  date:\n"
         '    regex: "Date d.émission\\\\s+(\\\\d{2}\\\\.\\\\d{2}\\\\.\\\\d{4})"\n'
         "    type: date\n"
-        "required_fields: [amount, date]\n"
+        "required: [amount, date]\n"
         "options:\n"
         "  currency: EUR\n"
         "  date_formats: ['%d.%m.%Y']\n"
@@ -140,7 +141,6 @@ class TestNoMatch:
     ):
         # Rule won't match anything in the corpus.
         (fresh_rules_dir / "01_no_match.yml").write_text(
-            "issuer: Phantom Co\n"
             "match: DefinitelyNotInTheFixtures_XYZ_marker\n"
         )
         rules = load_rules(fresh_rules_dir)

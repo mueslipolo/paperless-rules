@@ -28,18 +28,13 @@ def test_validate_rejects(name):
 
 
 def test_list_alphabetical_with_summary(tmp_path):
-    (tmp_path / "10_b.yml").write_text("issuer: B\nmatch: B\n")
+    (tmp_path / "10_b.yml").write_text("match: B\n")
     (tmp_path / "01_a.yml").write_text(
-        "issuer: A\nmatch: A\nfields:\n  amount: { regex: 'X', type: float }\n"
+        "match: A\nfields:\n  amount: { regex: 'X', type: float }\n"
     )
     rules = list_rules(tmp_path)
     assert [r["filename"] for r in rules] == ["01_a.yml", "10_b.yml"]
-    assert rules[0] == {
-        "filename": "01_a.yml",
-        "issuer": "A",
-        "match": "A",
-        "field_count": 1,
-    }
+    assert rules[0] == {"filename": "01_a.yml", "match": "A", "field_count": 1}
 
 
 def test_list_skips_non_yaml_and_malformed(tmp_path):

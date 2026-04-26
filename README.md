@@ -157,158 +157,109 @@ Two runtime modes:
 
 ## Writing rules
 
-A rule has two phases:
+A rule is a YAML file in `rules/`. It has two top-level concerns:
 
-1. **MATCH** — a single regex (`match:`) that decides whether the rule applies to a document. Evaluated with `re.MULTILINE | re.DOTALL` so `.` spans newlines.
-2. **EXTRACT** — a set of per-field regexes (`fields:`) that pull metadata once the rule has fired.
+- **`match` / `exclude`** — does this rule apply to the document?
+- **`fields`** — a flat dict of metadata generators. **Reserved names** (`correspondent`, `document_type`, `tags`, `title`) write to paperless built-ins; everything else becomes a custom field of the same name.
 
-Files in `rules/` load alphabetically — prefix with `NN_` to control specificity (`01_acme_invoice.yml` runs before `99_generic_invoice.yml`). The first rule whose `match` succeeds and `required_fields` all extract wins.
+Files load alphabetically — prefix with `NN_` to control specificity (`01_` runs before `99_`). The first rule whose `match` fires and whose `required:` extracts all succeed wins.
 
-### Example 1 — Telecom mobile invoice (French)
+The match regex runs with `re.MULTILINE | re.DOTALL` so `.` spans newlines. Make it specific — `'Invoice'` is too generic; `'Acme Corp.*?Invoice'` anchors to a particular template.
 
-The canonical case: stable issuer name, French invoice template, EUR with comma decimal.
+### Field shapes — three forms
+
+Each entry in `fields:` is one of three shapes (with optional `type:` for coercion to `float`, `date`, or `str`):
+
+**`regex:`** — capture from the document's text. All transforms (`pick`, `map`, `aggregate`, `combine`, `default`, multi-arm `match`) work here.
+```yaml
+amount: { regex: 'Total\s+EUR\s+([\d.,]+)', type: float }
+```
+
+**`value:`** — fixed assignment. Lists pass through (used for `tags`). When paired with `regex:`, behaves as "constant on match" — the regex acts as a trigger and `value:` is the constant.
+```yaml
+document_type: { value: Invoice }
+tags:          { value: [invoice, monthly] }
+is_paid:       { regex: '\bPAID\b', value: yes, default: no, type: str }
+```
+
+**`template:`** — string with `{name}` placeholders that resolve against other fields' values. Templates can reference other templates; cycles are detected.
+```yaml
+title:    { template: '{date} Acme #{invoice_number} EUR{amount}' }
+filename: { template: '{date}_acme_{invoice_number}' }
+```
+
+A field can also have **`internal: true`** — extracted/computed but not written to paperless. Useful for fragments that only feed into a template.
+
+### Example — telecom invoice from a specific sender
 
 ```yaml
-issuer: Acme Télécom (Europe) SARL
-document_type: Invoice
-tags: [telecom, mobile, monthly]
+match: 'Acme Télécom.*?Facture mensuelle'
+exclude: 'Rappel'
 
-# MATCH — single regex; rule fires when this matches the doc
-match: 'Acme.*?Facture'         # issuer + doc-type, in any order, any distance
-exclude: 'Rappel'               # optional: disqualifies reminders / dunning notices
-
-# FIELDS — per-field regexes that extract paperless metadata
 fields:
-  amount:
-    regex: 'Total à payer\s+EUR\s+([\d ,]+)'
-    type: float                 # writes "EUR1234.50" as a monetary custom_field
-  date:
-    regex: 'Date d''émission\s+(\d{2}\.\d{2}\.\d{4})'
-    type: date                  # writes "2024-03-15" as a date custom_field
-  invoice_number:
-    regex:
-      - 'Numéro de facture\s+(\d+)'
-      - 'No\.?\s*facture\s+(\d+)' # alternate template
-    type: str
+  # Built-in paperless metadata (reserved names)
+  correspondent: { value: 'Acme Télécom (Europe) SARL' }
+  document_type: { value: Invoice }
+  tags:          { value: [invoice, telecom, monthly] }
 
-required_fields: [amount, date]
+  # Extractions from the OCR text
+  amount:         { regex: 'Total à payer\s+EUR\s+([\d ,]+)', type: float }
+  date:           { regex: 'Date d''émission\s+(\d{2}\.\d{2}\.\d{4})', type: date }
+  invoice_number: { regex: 'Numéro de facture\s+(\d+)' }
+
+  # Composed metadata via templates
+  title: { template: '{date} Acme Invoice #{invoice_number} — €{amount}' }
+
+required: [amount, date]
 
 options:
   currency: EUR
   date_formats: ['%d.%m.%Y']
-  languages: [fr]
 ```
 
-### Example 2 — Insurance premium statement (German)
+### Example — generic insurance premium (multiple senders)
 
-Different language, due_date, and a locale-dependent month name (`%B`).
+A rule that's **not** issuer-specific: matches any insurer's premium statement of this layout. The correspondent is *extracted* from the doc rather than hard-coded.
 
 ```yaml
-issuer: Globex Versicherung GmbH
-document_type: Insurance premium
-tags: [insurance, health, monthly]
-
-match: 'Globex.*?Prämienrechnung'
+match: 'Premium statement|Prämienrechnung'
+exclude: 'Reminder|Mahnung'
 
 fields:
-  amount:
-    regex: 'Rechnungsbetrag\s+EUR\s+([\d.,]+)'
-    type: float
-  date:
-    regex: 'Rechnungsdatum\s+(\d{1,2}\.\s?\w+\s+\d{4})'
-    type: date
-  due_date:
-    regex: 'Fällig am\s+(\d{2}\.\d{2}\.\d{4})'
-    type: date
-  policy_number:
-    regex: 'Police[\s.\-]+(\d{6,})'
-    type: str
+  document_type: { value: 'Insurance premium' }
+  tags:          { value: [insurance, premium] }
 
-required_fields: [amount, due_date, policy_number]
+  correspondent: { regex: '^(.+?(?:GmbH|AG|Inc|Ltd))\s*$' }
+  amount:        { regex: 'Premium\s+EUR\s+([\d.,]+)', type: float }
+  due_date:      { regex: 'Due\s+(\d{2}\.\d{2}\.\d{4})', type: date }
+  policy_number: { regex: 'Policy\s+([A-Z0-9-]+)' }
 
-options:
-  currency: EUR
-  # Engine tries user formats first, then a built-in fallback list
-  date_formats:
-    - '%d.%m.%Y'
-    - '%d. %B %Y'             # "15. März 2024" — locale-dependent
-  languages: [de]
+  title: { template: '{due_date} {correspondent} premium €{amount}' }
+
+required: [correspondent, amount, due_date]
 ```
 
-### Example 3 — Bank statement (with disambiguating exclusion)
-
-Demonstrates `exclude_keywords` to differentiate a regular account statement from a credit-card statement that uses similar wording.
+### Example — using transforms
 
 ```yaml
-issuer: Initech Bank
-document_type: Bank statement
-tags: [bank, statement, initech]
-
-match: 'Initech Bank.*?Account statement'
-exclude: 'Credit card statement'  # different rule applies for those
+match: 'Quarterly Report'
 
 fields:
-  iban:
-    regex: '\b([A-Z]{2}\d{2}\s?(?:[A-Z0-9]{4}\s?){3,7}[A-Z0-9]{0,4})\b'
-    type: str
-  period_end:
-    regex: 'Balance as of\s+(\d{4}-\d{2}-\d{2})'
-    type: date
-  closing_balance:
-    regex: 'Closing balance[^\n]+([+\-]?[\d,.]+)'
-    type: float
+  # Pick the LAST date in the doc (often the period-end date)
+  period_end: { regex: '(\d{4}-\d{2}-\d{2})', pick: last, type: date }
 
-required_fields: [iban, period_end]
+  # Sum every line-item amount on the page
+  total: { regex: 'Item\s+\$([\d.,]+)', aggregate: sum, type: float }
 
-options:
-  currency: USD
-  date_formats: ['%Y-%m-%d']
-```
+  # Map country codes to canonical names
+  country: { regex: 'Origin:\s*(\w+)', map: {DE: Germany, FR: France} }
 
-### Example 4 — Generic invoice fallback (multi-currency catch-all)
-
-Place this at `99_generic_invoice.yml` so it runs after issuer-specific rules. The runtime stops at the first match, so this fires only when nothing more specific matched.
-
-```yaml
-issuer: ''                    # no specific correspondent
-document_type: Invoice
-tags: [unmatched-invoice]
-
-match: '\bInvoice\b'
-
-fields:
-  amount:
-    regex:
-      - 'Total\s+(?:CHF|EUR|USD|GBP)\s+([\d''.,]+)'
-      - 'Amount due\s+(?:CHF|EUR|USD|GBP)\s+([\d''.,]+)'
-      - 'Grand total\s+(?:CHF|EUR|USD|GBP)\s+([\d''.,]+)'
-    type: float
-  date:
-    regex: '\b(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})\b'
-    type: date
-
-required_fields: [amount]
-
-options:
-  currency: EUR
-```
-
-### Field-spec syntax
-
-Three equivalent forms for declaring `fields.<name>`:
-
-```yaml
-fields:
-  amount: 'Total\s+EUR\s+([\d.]+)'         # bare string, type inferred from name
-  invoice_number:                          # list of patterns, first match wins
-    - 'Invoice\s+number\s*(\d+)'
-    - 'Numéro de facture\s*(\d+)'
-  date:                                    # full dict form
-    regex: 'on\s+(\d{4}-\d{2}-\d{2})'
-    type: date
+  # Boolean-ish flag (regex as trigger, value: as the constant, default: as fallback)
+  is_paid: { regex: '\bPAID\b', value: 'yes', default: 'no', type: str }
 ```
 
 Type inference from the field name: substrings `amount`, `total`, `price`, `tva`, `vat`, `tax`, `montant` → `float`; `date`, `due`, `echeance`, `period`, `fällig` → `date`; otherwise `str`.
+
 
 ### Field transforms
 

@@ -120,10 +120,10 @@ def test_get_document_text_missing(app_client):
 
 
 def test_save_then_list_then_load(app_client):
-    text = "issuer: Test\nmatch: Test\n"
+    text = "match: Test\n"
     assert app_client.post("/api/rules", json={"filename": "01_test.yml", "yaml": text}).status_code == 200
     listing = app_client.get("/api/rules").json()
-    assert listing["rules"][0] == {"filename": "01_test.yml", "issuer": "Test", "match": "Test", "field_count": 0}
+    assert listing["rules"][0] == {"filename": "01_test.yml", "match": "Test", "field_count": 0}
     assert app_client.get("/api/rules/01_test.yml").json()["yaml"] == text
 
 
@@ -223,10 +223,10 @@ def test_case_insensitive_flag(app_client):
 
 def test_bootstrap_returns_suggestion(app_client):
     body = app_client.post("/api/bootstrap", json={"doc_id": 42}).json()
-    assert "Acme" in body["issuer"]
+    assert set(body) == {"match", "exclude", "filename_suggestion", "language", "currency"}
     assert body["currency"] == "EUR" and body["language"] == "fr"
-    assert "match" in body and body["match"]                   # single match regex
-    assert "Acme" in body["match"] and "Facture" in body["match"]
+    assert body["match"]                                # non-empty seed (doctype hint)
+    assert body["filename_suggestion"].endswith(".yml")
 
 
 def test_bootstrap_missing_doc_404(app_client):

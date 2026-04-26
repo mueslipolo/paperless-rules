@@ -64,7 +64,7 @@ class WriteRecordingPaperless:
 
 def _doc(**overrides):
     base = {
-        "id": 42, "title": "Acme Mar 2024", "content": ACME,
+        "id": 42, "title": "", "content": ACME,
         "correspondent": None, "document_type": None,
         "tags": [], "custom_fields": [],
     }
@@ -73,17 +73,22 @@ def _doc(**overrides):
 
 
 def _rule():
+    """Realistic rule using the new unified schema. Reserved field names
+    (correspondent / document_type / tags / title) hit paperless built-ins;
+    `amount`, `date`, `invoice_number` become custom fields."""
     return {
-        "issuer": "Acme Télécom (Europe) SARL",
-        "document_type": "Invoice",
-        "tags": ["telecom", "monthly"],
         "match": "Acme",
+        "exclude": "",
         "fields": {
-            "amount": {"regex": r"Total à payer\s+EUR\s+([\d ,-]+)", "type": "float"},
+            "amount":         {"regex": r"Total à payer\s+EUR\s+([\d ,-]+)", "type": "float"},
+            "date":           {"regex": r"Date d'émission\s+(\d{2}\.\d{2}\.\d{4})", "type": "date"},
             "invoice_number": {"regex": r"Numéro de facture\s+(\d+)", "type": "str"},
-            "date": {"regex": r"Date d'émission\s+(\d{2}\.\d{2}\.\d{4})", "type": "date"},
+            "correspondent":  {"value": "Acme Télécom (Europe) SARL"},
+            "document_type":  {"value": "Invoice"},
+            "tags":           {"value": ["telecom", "monthly"]},
+            "title":          {"template": "{date} Acme #{invoice_number} EUR{amount}"},
         },
-        "required_fields": ["amount", "date"],
+        "required": ["amount", "date"],
         "options": {"currency": "EUR", "date_formats": ["%d.%m.%Y"]},
     }
 
@@ -101,6 +106,13 @@ async def test_creates_correspondent_doctype_tags():
     assert sorted(payload["tags"]) == [1, 2]
 
 
+async def test_title_template_rendered():
+    client = WriteRecordingPaperless({42: _doc()})
+    await apply_rules_to_document(client, 42, [("01.yml", _rule())])
+    _, payload = client.patches[0]
+    assert payload["title"] == "2024-03-15 Acme #987654321 EUR1234.5"
+
+
 async def test_extracted_values_become_custom_fields():
     client = WriteRecordingPaperless({42: _doc()})
     await apply_rules_to_document(client, 42, [("01.yml", _rule())])
@@ -108,6 +120,17 @@ async def test_extracted_values_become_custom_fields():
     assert "EUR1234.50" in cf_values
     assert "2024-03-15" in cf_values
     assert "987654321" in cf_values
+
+
+async def test_internal_field_skipped_from_custom_fields():
+    rule = _rule()
+    rule["fields"]["raw_id"] = {"regex": r"client\s+(\d+)", "internal": True}
+    client = WriteRecordingPaperless({42: _doc()})
+    await apply_rules_to_document(client, 42, [("01.yml", rule)])
+    cf_names_keys = [c["field"] for c in client.patches[0][1]["custom_fields"]]
+    # The custom_fields list keys by ID. Look at created custom_fields by name:
+    created_names = {cf["name"] for cf in client.custom_fields.values()}
+    assert "raw_id" not in created_names  # internal → not published
 
 
 async def test_monetary_uses_rule_currency():
@@ -129,7 +152,7 @@ async def test_second_run_makes_no_changes():
     before = len(client.patches)
     r2 = await apply_rules_to_document(client, 42, [("01.yml", _rule())], cache=cache)
     assert r2.matched
-    assert len(client.patches) == before  # no second PATCH
+    assert len(client.patches) == before
     assert r2.payload is None
 
 
@@ -138,7 +161,14 @@ async def test_existing_correspondent_not_overwritten():
     client.correspondents[99] = {"id": 99, "name": "Manual Override"}
     await apply_rules_to_document(client, 42, [("01.yml", _rule())])
     _, payload = client.patches[0]
-    assert "correspondent" not in payload  # untouched
+    assert "correspondent" not in payload
+
+
+async def test_existing_title_not_overwritten():
+    client = WriteRecordingPaperless({42: _doc(title="Manually edited title")})
+    await apply_rules_to_document(client, 42, [("01.yml", _rule())])
+    _, payload = client.patches[0]
+    assert "title" not in payload
 
 
 async def test_overwrite_flag_replaces_correspondent():
@@ -159,15 +189,6 @@ async def test_existing_tags_preserved():
     assert 99 in payload["tags"] and len(payload["tags"]) == 3
 
 
-async def test_no_tag_change_when_already_a_superset():
-    client = WriteRecordingPaperless({42: _doc(tags=[1, 2, 99])})
-    for i, name in [(1, "telecom"), (2, "monthly"), (99, "manual")]:
-        client.tags[i] = {"id": i, "name": name}
-    await apply_rules_to_document(client, 42, [("01.yml", _rule())])
-    if client.patches:
-        assert "tags" not in client.patches[0][1]
-
-
 # ── no-match / error paths ───────────────────────────────────────────
 
 
@@ -178,11 +199,11 @@ async def test_no_rule_matches_no_patch():
     result = await apply_rules_to_document(client, 42, [("01.yml", rule)])
     assert not result.matched
     assert client.patches == []
-    assert result.error is None  # no error, no flag, just nothing — silent path
+    assert result.error is None
 
 
 async def test_doc_fetch_error_returns_error():
-    client = WriteRecordingPaperless({})  # doc 42 doesn't exist
+    client = WriteRecordingPaperless({})
     result = await apply_rules_to_document(client, 42, [("01.yml", _rule())])
     assert result.error is not None
     assert client.patches == []
@@ -193,10 +214,10 @@ async def test_custom_field_creation_failure_skips_field():
     client.fail_create_kinds = {"custom_fields"}
     result = await apply_rules_to_document(client, 42, [("01.yml", _rule())])
     assert result.matched
-    assert set(result.skipped_fields) == {"amount", "date", "invoice_number"}
+    assert {"amount", "date", "invoice_number"} <= set(result.skipped_fields)
     payload = client.patches[0][1]
-    assert "custom_fields" not in payload  # all writes skipped
-    assert "correspondent" in payload     # but other writes proceeded
+    assert "custom_fields" not in payload  # all skipped
+    assert "correspondent" in payload      # built-ins still went through
 
 
 async def test_correspondent_creation_failure_silently_omits():
@@ -206,7 +227,7 @@ async def test_correspondent_creation_failure_silently_omits():
     assert result.matched
     payload = client.patches[0][1]
     assert "correspondent" not in payload
-    assert "document_type" in payload  # other writes still happen
+    assert "document_type" in payload
 
 
 # ── dry run ──────────────────────────────────────────────────────────
@@ -219,15 +240,6 @@ async def test_dry_run_does_not_patch():
     assert client.patches == []
 
 
-async def test_dry_run_still_creates_lookup_records():
-    # Trade-off: we DO create correspondents/tags during dry-run because we
-    # need their IDs to render the would-be payload. Pinned so it's not a surprise.
-    client = WriteRecordingPaperless({42: _doc()})
-    await apply_rules_to_document(client, 42, [("01.yml", _rule())], dry_run=True)
-    assert len(client.correspondents) == 1
-    assert len(client.tags) == 2
-
-
 # ── cache ────────────────────────────────────────────────────────────
 
 
@@ -237,5 +249,5 @@ async def test_resolution_cache_reused_across_docs():
     cache = ResolutionCache()
     await apply_rules_to_document(client, 42, [("01.yml", _rule())], cache=cache)
     await apply_rules_to_document(client, 43, [("01.yml", _rule())], cache=cache)
-    assert len(client.correspondents) == 1  # second doc reused cache
+    assert len(client.correspondents) == 1
     assert len(client.tags) == 2

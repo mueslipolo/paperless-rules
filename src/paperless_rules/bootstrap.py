@@ -1,9 +1,9 @@
 """Bootstrap a starter rule from one document. Heuristic, no LLM.
 
-Produces three things and three only: the detected issuer, a single
-discriminative match regex (issuer-word + doctype-hint joined with `.*?`),
-and a sensible filename. Fields are added by the user in the editor —
-the presets sidebar carries the common regex shapes (amount, date, IBAN…).
+A rule describes a *kind of document*, not a sender. So bootstrap proposes
+only what's generic: a starter `match` regex (a doctype hint found in the
+text) and a sensible filename. Fields, exclude, and any sender-specific
+narrowing are added by the user in the editor.
 """
 
 from __future__ import annotations
@@ -12,20 +12,16 @@ import re
 import unicodedata
 from typing import Any
 
-_COMPANY_SUFFIX_RE = re.compile(
-    r"\b(?:AG|SA|S\.A\.|GmbH|S(?:à|a)rl|Inc|Ltd|LLC|Corp|SAS|SARL|SRL)\b",
-    re.IGNORECASE,
-)
-
-_GENERIC_HEADERS = frozenset({
-    "rechnung", "facture", "fattura", "invoice", "statement",
-    "kontoauszug", "relevé", "quittung", "rappel", "mahnung",
-})
-
 _DOCTYPE_HINTS = (
     "facture", "rechnung", "fattura", "invoice", "rappel", "mahnung",
     "reminder", "kontoauszug", "relevé", "statement",
 )
+
+_DOCTYPE_TO_LABEL = {
+    "facture": "invoice", "rechnung": "invoice", "invoice": "invoice", "fattura": "invoice",
+    "rappel": "reminder", "mahnung": "reminder", "reminder": "reminder",
+    "kontoauszug": "statement", "relevé": "statement", "statement": "statement",
+}
 
 _LANG_STOPWORDS: dict[str, frozenset[str]] = {
     "fr": frozenset({"le", "la", "les", "de", "du", "des", "et", "à", "pour", "dans", "votre"}),
@@ -33,27 +29,6 @@ _LANG_STOPWORDS: dict[str, frozenset[str]] = {
     "it": frozenset({"il", "lo", "la", "i", "gli", "le", "di", "del", "della", "e", "un", "per", "con"}),
     "en": frozenset({"the", "and", "or", "of", "to", "in", "on", "at", "for", "with"}),
 }
-_ALL_STOPS = frozenset().union(*_LANG_STOPWORDS.values())
-
-
-def _slugify(s: str) -> str:
-    s = unicodedata.normalize("NFKD", s).encode("ascii", "ignore").decode()
-    return re.sub(r"[^a-z0-9]+", "_", s.lower()).strip("_") or "field"
-
-
-def _detect_issuer(text: str) -> str:
-    lines = [ln.strip() for ln in text.split("\n") if ln.strip()][:8]
-    if not lines:
-        return ""
-    candidates = [ln for ln in lines if ln.lower() not in _GENERIC_HEADERS]
-    for ln in candidates:
-        if _COMPANY_SUFFIX_RE.search(ln):
-            return ln
-    for ln in candidates:
-        words = ln.split()
-        if sum(1 for w in words if w[:1].isupper()) >= 2:
-            return ln
-    return max(lines[:5], key=len) if lines else ""
 
 
 def _detect_language(text: str) -> str:
@@ -71,56 +46,34 @@ def _detect_currency(text: str) -> str:
     return m.group(1) if m else "EUR"
 
 
-def _build_match_regex(text: str, issuer: str) -> str:
-    """One discriminative regex: issuer's first non-stopword non-suffix word,
-    joined to the first doctype hint found in the text via `.*?`. Engine runs
-    `match` with re.DOTALL so the two anchors can be on different lines."""
-    issuer_words = [w.strip("().,;:") for w in issuer.split()
-                    if not _COMPANY_SUFFIX_RE.match(w)]
-    issuer_word = next(
-        (w for w in issuer_words
-         if re.match(r"^[A-Za-zÀ-ÿ][\w'-]*$", w) and w.lower() not in _ALL_STOPS),
-        None,
-    )
-    doctype_word = None
+def _detect_doctype(text: str) -> str:
     for hint in _DOCTYPE_HINTS:
         m = re.search(rf"\b({hint})\b", text, re.IGNORECASE)
         if m:
-            doctype_word = m.group(1)
-            break
-    if issuer_word and doctype_word:
-        return f"{issuer_word}.*?{doctype_word}"
-    return issuer_word or doctype_word or ""
+            return m.group(1)
+    return ""
 
 
-def _suggest_filename(issuer: str, text: str) -> str:
-    base = issuer.split("(")[0].strip() if issuer else "rule"
-    slug = _slugify(base)
-    slug = re.sub(r"_+(sa|ag|gmbh|sarl|inc|ltd|llc|corp)$", "", slug) or "rule"
-    text_l = text.lower()
-    for hint, label in [
-        ("facture", "invoice"), ("rechnung", "invoice"), ("invoice", "invoice"),
-        ("fattura", "invoice"),
-        ("rappel", "reminder"), ("mahnung", "reminder"), ("reminder", "reminder"),
-        ("kontoauszug", "statement"), ("relevé", "statement"), ("statement", "statement"),
-    ]:
-        if hint in text_l:
-            return f"01_{slug}_{label}.yml"
-    return f"01_{slug}_rule.yml"
+def _suggest_filename(text: str) -> str:
+    hint = _detect_doctype(text).lower()
+    label = _DOCTYPE_TO_LABEL.get(hint, "rule")
+    return f"01_{label}.yml"
 
 
 def bootstrap_from_text(text: str) -> dict[str, Any]:
-    """Analyze OCR text and return a minimal rule skeleton: issuer, match
-    regex, filename, plus detected language and currency for the YAML
-    `options` block. Fields are filled in by the user in the editor."""
+    """Return a generic starter for the document's kind.
+
+    Output: {match, exclude, filename_suggestion, language, currency}.
+    The match seed is just the detected doctype word — the user makes it
+    more specific in the editor (it'll usually need to be).
+    """
     text = unicodedata.normalize("NFC", text or "")
-    issuer = _detect_issuer(text)
     return {
-        "issuer": issuer,
+        "match": _detect_doctype(text),
+        "exclude": "",
+        "filename_suggestion": _suggest_filename(text),
         "language": _detect_language(text),
         "currency": _detect_currency(text),
-        "match": _build_match_regex(text, issuer),
-        "filename_suggestion": _suggest_filename(issuer, text),
     }
 
 
@@ -135,21 +88,28 @@ def _quote_yaml(s: str) -> str:
 def render_yaml(
     suggestion: dict[str, Any],
     match: str | None = None,
-    filename: str | None = None,  # noqa: ARG001
+    exclude: str | None = None,
+    filename: str | None = None,  # noqa: ARG001 — the editor uses this for its filename input
 ) -> str:
-    """Render a YAML skeleton with the match regex set and an empty fields
-    block. The user populates `fields:` in the editor — the presets sidebar
-    gives them the regex shapes for amounts, dates, IBANs, etc."""
+    """Render a YAML skeleton: match + exclude up top, empty fields below.
+
+    The user populates `fields:` in the editor — reserved names
+    (`correspondent`, `document_type`, `tags`, `title`) become paperless
+    built-ins; everything else becomes a custom field of the same name.
+    """
     if match is None:
         match = suggestion.get("match", "") or ""
+    if exclude is None:
+        exclude = suggestion.get("exclude", "") or ""
     return (
-        f"issuer: {_quote_yaml(suggestion.get('issuer') or '')}\n"
         f"# MATCH — single regex; rule fires when this matches the doc\n"
         f"match: {_quote_yaml(match)}\n"
-        f"exclude: ''\n"
-        f"# FIELDS — per-field regexes that extract paperless metadata\n"
+        f"exclude: {_quote_yaml(exclude)}\n"
+        f"# FIELDS — reserved names (correspondent, document_type, tags, title)\n"
+        f"# write to paperless built-ins; anything else becomes a custom field.\n"
+        f"# Forms: regex / value / template (with {{name}} placeholders).\n"
         f"fields: {{}}\n"
-        f"required_fields: []\n"
+        f"required: []\n"
         f"options:\n"
         f"  currency: {_quote_yaml(suggestion.get('currency') or 'EUR')}\n"
         f"  date_formats:\n    - '%d.%m.%Y'\n"
