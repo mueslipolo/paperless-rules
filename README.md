@@ -6,7 +6,7 @@ A web editor + runtime that learns the patterns of your recurring senders and wr
 
 ## Why
 
-paperless-ngx has built-in matching rules but each one only assigns a single piece of metadata. paperless-rules adds **two-stage matching**: a rule identifies a document by keywords, then *because* it matched, a bundle of regexes extract amounts / dates / reference numbers into custom fields. For predictable templates (around 70 % of typical household admin), this beats an LLM-based approach on accuracy, speed, cost, and auditability.
+paperless-ngx has built-in matching rules but each one only assigns a single piece of metadata. paperless-rules adds **two-stage matching**: one regex (`match:`) decides whether a document is the right kind, then *because* it matched, a bundle of per-field regexes (`fields:`) extract amounts / dates / reference numbers into custom fields. For predictable templates (around 70 % of typical household admin), this beats an LLM-based approach on accuracy, speed, cost, and auditability.
 
 Currency, date formats, language, and matching tags are all configurable per rule — see [Writing rules](#writing-rules).
 
@@ -157,7 +157,12 @@ Two runtime modes:
 
 ## Writing rules
 
-A rule is a YAML file in `rules/`. Filenames load alphabetically — prefix with `NN_` to control specificity (`01_acme_invoice.yml` runs before `99_generic_invoice.yml`). The first rule whose `keywords` match and `required_fields` extract wins.
+A rule has two phases:
+
+1. **MATCH** — a single regex (`match:`) that decides whether the rule applies to a document. Evaluated with `re.MULTILINE | re.DOTALL` so `.` spans newlines.
+2. **EXTRACT** — a set of per-field regexes (`fields:`) that pull metadata once the rule has fired.
+
+Files in `rules/` load alphabetically — prefix with `NN_` to control specificity (`01_acme_invoice.yml` runs before `99_generic_invoice.yml`). The first rule whose `match` succeeds and `required_fields` all extract wins.
 
 ### Example 1 — Telecom mobile invoice (French)
 
@@ -168,24 +173,22 @@ issuer: Acme Télécom (Europe) SARL
 document_type: Invoice
 tags: [telecom, mobile, monthly]
 
-keywords:
-  - Acme
-  - Facture
+# MATCH — single regex; rule fires when this matches the doc
+match: 'Acme.*?Facture'         # issuer + doc-type, in any order, any distance
+exclude: 'Rappel'               # optional: disqualifies reminders / dunning notices
 
-exclude_keywords:
-  - Rappel                    # don't match reminders / dunning notices
-
+# FIELDS — per-field regexes that extract paperless metadata
 fields:
   amount:
     regex: 'Total à payer\s+EUR\s+([\d ,]+)'
-    type: float               # writes "EUR1234.50" as a monetary custom_field
+    type: float                 # writes "EUR1234.50" as a monetary custom_field
   date:
     regex: 'Date d''émission\s+(\d{2}\.\d{2}\.\d{4})'
-    type: date                # writes "2024-03-15" as a date custom_field
+    type: date                  # writes "2024-03-15" as a date custom_field
   invoice_number:
     regex:
       - 'Numéro de facture\s+(\d+)'
-      - 'No\.?\s*facture\s+(\d+)'   # alternate template
+      - 'No\.?\s*facture\s+(\d+)' # alternate template
     type: str
 
 required_fields: [amount, date]
@@ -205,9 +208,7 @@ issuer: Globex Versicherung GmbH
 document_type: Insurance premium
 tags: [insurance, health, monthly]
 
-keywords:
-  - Globex
-  - Prämienrechnung
+match: 'Globex.*?Prämienrechnung'
 
 fields:
   amount:
@@ -243,12 +244,8 @@ issuer: Initech Bank
 document_type: Bank statement
 tags: [bank, statement, initech]
 
-keywords:
-  - Initech Bank
-  - Account statement
-
-exclude_keywords:
-  - Credit card statement     # different rule applies for those
+match: 'Initech Bank.*?Account statement'
+exclude: 'Credit card statement'  # different rule applies for those
 
 fields:
   iban:
@@ -277,8 +274,7 @@ issuer: ''                    # no specific correspondent
 document_type: Invoice
 tags: [unmatched-invoice]
 
-keywords:
-  - Invoice
+match: '\bInvoice\b'
 
 fields:
   amount:

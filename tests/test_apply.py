@@ -77,7 +77,7 @@ def _rule():
         "issuer": "Acme Télécom (Europe) SARL",
         "document_type": "Invoice",
         "tags": ["telecom", "monthly"],
-        "keywords": ["Acme", "Facture"],
+        "match": "Acme",
         "fields": {
             "amount": {"regex": r"Total à payer\s+EUR\s+([\d ,-]+)", "type": "float"},
             "invoice_number": {"regex": r"Numéro de facture\s+(\d+)", "type": "str"},
@@ -174,7 +174,7 @@ async def test_no_tag_change_when_already_a_superset():
 async def test_no_rule_matches_no_patch():
     client = WriteRecordingPaperless({42: _doc()})
     rule = _rule()
-    rule["keywords"] = ["DefinitelyNotInDocument_XYZ"]
+    rule["match"] = "DefinitelyNotInDocument_XYZ"
     result = await apply_rules_to_document(client, 42, [("01.yml", rule)])
     assert not result.matched
     assert client.patches == []

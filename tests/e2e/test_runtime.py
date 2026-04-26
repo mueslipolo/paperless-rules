@@ -28,7 +28,7 @@ def _acme_rule_yaml() -> str:
         "issuer: Acme Télécom (Europe) SARL\n"
         "document_type: Invoice\n"
         "tags: [telecom, monthly]\n"
-        "keywords: [Acme, Facture]\n"
+        "match: Acme\n"
         "fields:\n"
         "  amount:\n"
         '    regex: "Total à payer\\\\s+EUR\\\\s+([\\\\d ,-]+)"\n'
@@ -141,7 +141,7 @@ class TestNoMatch:
         # Rule won't match anything in the corpus.
         (fresh_rules_dir / "01_no_match.yml").write_text(
             "issuer: Phantom Co\n"
-            "keywords: [DefinitelyNotInTheFixtures_XYZ_marker]\n"
+            "match: DefinitelyNotInTheFixtures_XYZ_marker\n"
         )
         rules = load_rules(fresh_rules_dir)
         doc_id = _doc_id_by_title(seeded_doc_ids, admin_token, "acme")

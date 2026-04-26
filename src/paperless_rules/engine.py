@@ -155,14 +155,34 @@ def coerce_value(raw: str, ftype: str, date_formats: list[str] | None = None) ->
 
 
 def extract_with_rule(text: str, rule: Rule) -> ExtractionResult:
-    """Returns {matched, missing_keywords, excluded_by, fields, required_ok}."""
+    """Returns {matched, missing_keywords, excluded_by, fields, required_ok}.
+
+    Match phase: `match` is a single regex (or list — all must match), run
+    with re.MULTILINE | re.DOTALL so `.` spans lines. `exclude` disqualifies
+    the rule when it matches. Empty patterns are skipped (an empty regex
+    would otherwise match everything, never the user's intent).
+    """
     text = unicodedata.normalize("NFC", text or "")
 
-    keywords = rule.get("keywords") or []
-    missing = [k for k in keywords if not re.search(k, text, re.MULTILINE)]
+    match_spec = rule.get("match")
+    match_patterns = (
+        [match_spec] if isinstance(match_spec, str)
+        else [str(p) for p in match_spec] if isinstance(match_spec, list)
+        else []
+    )
+    match_patterns = [p for p in match_patterns if p]
+    missing = [p for p in match_patterns
+               if not re.search(p, text, re.MULTILINE | re.DOTALL)]
+
+    exclude_spec = rule.get("exclude")
+    excludes = (
+        [exclude_spec] if isinstance(exclude_spec, str)
+        else [str(p) for p in exclude_spec] if isinstance(exclude_spec, list)
+        else []
+    )
+    excludes = [e for e in excludes if e]
     excluded_by = next(
-        (k for k in (rule.get("exclude_keywords") or [])
-         if re.search(k, text, re.MULTILINE)),
+        (e for e in excludes if re.search(e, text, re.MULTILINE | re.DOTALL)),
         None,
     )
     matched = not missing and excluded_by is None

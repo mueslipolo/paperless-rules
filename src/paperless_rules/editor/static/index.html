@@ -591,13 +591,17 @@ function renderStats() {
   if (!state.pattern) { el.textContent = "— no pattern —"; return; }
   if (!r) { el.textContent = "…"; return; }
   if (!r.ok) { el.classList.add("error"); el.textContent = `regex error: ${r.error}`; return; }
+  // Label the stats by what the regex represents in the rule.
+  const prefix = state.field === "match"   ? "rule fires on "
+              : state.field === "exclude" ? "rule disqualified on "
+              : "";
   const docs = r.results.filter(x => x.source === "doc");
   if (docs.length) {
     const hits = docs.filter(x => x.match_count > 0).length;
     const total = docs.reduce((s, x) => s + x.match_count, 0);
-    el.textContent = `${hits}/${docs.length} docs · ${total} matches`;
+    el.textContent = `${prefix}${hits}/${docs.length} docs · ${total} matches`;
   } else if (r.results.length) {
-    el.textContent = `${r.results[0].match_count} matches (active doc only)`;
+    el.textContent = `${prefix}${r.results[0].match_count} matches (active doc only)`;
   } else el.textContent = "—";
 }
 
@@ -697,10 +701,25 @@ function renderYAMLStatus() {
 }
 
 function syncFieldSelector(fields) {
-  const opts = fields.length ? fields : ["amount"];
+  // The target dropdown spans the rule's two phases: pseudo-targets `match`
+  // and `exclude` write to the rule's top-level keys; the rest are real
+  // field names parsed from the YAML.
+  const fieldNames = fields.length ? fields : ["amount"];
+  const all = ["match", "exclude", ...fieldNames];
   const sel = $("#field-select");
-  sel.innerHTML = opts.map(f => `<option ${f === state.field ? "selected" : ""}>${esc(f)}</option>`).join("");
-  if (!opts.includes(state.field)) { state.field = opts[0]; sel.value = state.field; }
+  sel.innerHTML = all.map(f => {
+    const label = (f === "match" || f === "exclude") ? `[${f}]` : f;
+    return `<option value="${esc(f)}" ${f === state.field ? "selected" : ""}>${label}</option>`;
+  }).join("");
+  if (!all.includes(state.field)) { state.field = "match"; sel.value = state.field; }
+  updateApplyLabel();
+}
+
+function updateApplyLabel() {
+  const target = state.field;
+  const btn = $("#btn-apply");
+  if (!btn) return;
+  btn.textContent = `apply to ${target === "match" || target === "exclude" ? `[${target}]` : target}`;
 }
 
 async function loadHealth() {
@@ -893,20 +912,41 @@ async function runFullRule() {
 function applyPatternToField() {
   if (!state.pattern || !state.field) return;
   const yaml = $("#yaml-editor").value;
-  const fname = state.field;
-  const re = new RegExp(`(\\b${fname}:\\n(?:[ \\t]+[^\\n]*\\n)*?[ \\t]+regex:[ \\t]*)['"]?([^'\\n"]*)['"]?`);
+  const target = state.field;
+  const escaped = state.pattern.replace(/'/g, "''");
   let updated;
-  if (re.test(yaml)) {
-    updated = yaml.replace(re, (_, lead) => `${lead}'${state.pattern.replace(/'/g, "''")}'`);
+
+  if (target === "match" || target === "exclude") {
+    // Top-level YAML key — replace the existing line if present, else
+    // insert just after `issuer:` (or at the top if no issuer).
+    const lineRe = new RegExp(`^${target}:[ \\t]*['"]?[^'"\\n]*['"]?[ \\t]*$`, "m");
+    if (lineRe.test(yaml)) {
+      updated = yaml.replace(lineRe, `${target}: '${escaped}'`);
+    } else {
+      const issuerMatch = yaml.match(/^issuer:[^\n]*\n/m);
+      if (issuerMatch && issuerMatch.index !== undefined) {
+        const at = issuerMatch.index + issuerMatch[0].length;
+        updated = yaml.slice(0, at) + `${target}: '${escaped}'\n` + yaml.slice(at);
+      } else {
+        updated = `${target}: '${escaped}'\n${yaml}`;
+      }
+    }
   } else {
-    const block = `\nfields:\n  ${fname}:\n    regex: '${state.pattern.replace(/'/g, "''")}'\n    type: ${state.type}\n`;
-    updated = (yaml.trim() ? yaml + "\n" : "") + block;
+    const re = new RegExp(`(\\b${target}:\\n(?:[ \\t]+[^\\n]*\\n)*?[ \\t]+regex:[ \\t]*)['"]?([^'\\n"]*)['"]?`);
+    if (re.test(yaml)) {
+      updated = yaml.replace(re, (_, lead) => `${lead}'${escaped}'`);
+    } else {
+      const block = `\nfields:\n  ${target}:\n    regex: '${escaped}'\n    type: ${state.type}\n`;
+      updated = (yaml.trim() ? yaml + "\n" : "") + block;
+    }
   }
+
   $("#yaml-editor").value = updated;
   $("#yaml-section").classList.remove("collapsed");
   $("#yaml-toggle").textContent = "▼ yaml";
   markDirty();
   renderYAMLStatus();
+  debouncedAutoSave();
 }
 
 async function showBootstrap() {
@@ -924,26 +964,19 @@ async function showBootstrap() {
       <input type="text" id="bs-issuer" value="${escAttr(sug.issuer)}">
     </div>
     <div class="modal-section">
-      <h3>suggested keywords</h3>
-      ${sug.keywords.map((k, i) => `
-        <div class="modal-row">
-          <label><input type="checkbox" class="bs-k" data-i="${i}" ${k.suggested ? "checked" : ""}>
-            <code>${esc(k.phrase)}</code></label>
-          <span class="meta">score ${k.score.toFixed(0)}</span>
-        </div>`).join("")}
-    </div>
-    <div class="modal-section">
-      <h3>suggested fields</h3>
-      ${sug.fields.map((f, i) => `
-        <div class="modal-row">
-          <label><input type="checkbox" class="bs-f" data-i="${i}" ${f.suggested ? "checked" : ""}>
-            <code>${esc(f.name)}</code> <span class="muted">(${esc(f.type)})</span>
-            <span class="meta">→ ${esc(f.sample_value)}</span></label>
-        </div>`).join("")}
+      <h3>match regex — single regex; rule fires when this matches the doc</h3>
+      <input type="text" id="bs-match" value="${escAttr(sug.match || "")}">
+      <div class="muted" style="font-size:10px;margin-top:4px">
+        evaluated with multiline + dotall — <code>.</code> spans newlines
+      </div>
     </div>
     <div class="modal-section">
       <h3>filename</h3>
       <input type="text" id="bs-filename" value="${escAttr(sug.filename_suggestion)}">
+    </div>
+    <div class="muted" style="font-size:11px;margin-top:8px">
+      Fields are added in the YAML drawer after generating — use the presets
+      sidebar (CHF amount, DD.MM.YYYY, IBAN…) for the regex shapes.
     </div>`;
   $("#bootstrap-modal").hidden = false;
 }
@@ -952,26 +985,24 @@ function generateRuleFromBootstrap() {
   const sug = state.bootstrapSuggestion;
   if (!sug) return;
   const issuer = $("#bs-issuer").value;
+  const match = $("#bs-match").value;
   const filename = $("#bs-filename").value;
-  const kws = sug.keywords.filter((_, i) => $(`.bs-k[data-i="${i}"]`).checked).map(k => k.phrase);
-  const fnames = sug.fields.filter((_, i) => $(`.bs-f[data-i="${i}"]`).checked).map(f => f.name);
-  const byName = Object.fromEntries(sug.fields.map(f => [f.name, f]));
 
   const q = s => s === "" ? "''" :
     /^[A-Za-z][A-Za-z0-9 _.\-/()]*$/.test(s) && !/[:#]/.test(s)
       ? s : `'${String(s).replace(/'/g, "''")}'`;
-  let y = `issuer: ${q(issuer)}\nkeywords:\n`;
-  y += kws.length ? kws.map(k => `  - ${q(k)}`).join("\n") + "\n" : "  []\n";
-  y += "exclude_keywords: []\nfields:\n";
-  const required = [];
-  for (const fn of fnames) {
-    const f = byName[fn] || {};
-    y += `  ${fn}:\n    regex: ''\n    type: ${f.type || "str"}\n`;
-    if (f.type === "float" || f.type === "date") required.push(fn);
-  }
-  y += "required_fields:\n";
-  y += required.length ? required.map(r => `  - ${r}`).join("\n") + "\n" : "  []\n";
-  y += `options:\n  currency: ${q(sug.currency || "EUR")}\n  date_formats:\n    - '%d.%m.%Y'\n  languages:\n    - ${sug.language || "en"}\n`;
+  const y =
+    `issuer: ${q(issuer)}\n` +
+    `# MATCH — single regex; rule fires when this matches the doc\n` +
+    `match: ${q(match)}\n` +
+    `exclude: ''\n` +
+    `# FIELDS — per-field regexes that extract paperless metadata\n` +
+    `fields: {}\n` +
+    `required_fields: []\n` +
+    `options:\n` +
+    `  currency: ${q(sug.currency || "EUR")}\n` +
+    `  date_formats:\n    - '%d.%m.%Y'\n` +
+    `  languages:\n    - ${sug.language || "fr"}\n`;
 
   $("#yaml-editor").value = y;
   $("#filename-input").value = filename;
@@ -984,7 +1015,6 @@ function generateRuleFromBootstrap() {
   renderActiveRule();
   renderDocList();
   $("#bootstrap-modal").hidden = true;
-  // Auto-save the freshly generated rule.
   debouncedAutoSave();
 }
 
@@ -1173,7 +1203,11 @@ function wire() {
     runPatternTest();
   }));
   $("#type-select").addEventListener("change", e => { state.type = e.target.value; runPatternTest(); });
-  $("#field-select").addEventListener("change", e => { state.field = e.target.value; });
+  $("#field-select").addEventListener("change", e => {
+    state.field = e.target.value;
+    updateApplyLabel();
+    if (state.pattern) runPatternTest();   // re-render stats with the new label
+  });
   $("#hist-btn").addEventListener("click", e => { e.stopPropagation(); showHistoryDropdown(); });
   $("#btn-apply").addEventListener("click", applyPatternToField);
   $("#btn-run-rule").addEventListener("click", runFullRule);

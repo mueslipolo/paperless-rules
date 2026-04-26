@@ -120,10 +120,10 @@ def test_get_document_text_missing(app_client):
 
 
 def test_save_then_list_then_load(app_client):
-    text = "issuer: Test\nkeywords: [Test]\n"
+    text = "issuer: Test\nmatch: Test\n"
     assert app_client.post("/api/rules", json={"filename": "01_test.yml", "yaml": text}).status_code == 200
     listing = app_client.get("/api/rules").json()
-    assert listing["rules"][0] == {"filename": "01_test.yml", "issuer": "Test", "keywords": ["Test"], "field_count": 0}
+    assert listing["rules"][0] == {"filename": "01_test.yml", "issuer": "Test", "match": "Test", "field_count": 0}
     assert app_client.get("/api/rules/01_test.yml").json()["yaml"] == text
 
 
@@ -150,7 +150,7 @@ def test_load_missing_404(app_client):
 
 def test_runs_rule_against_doc(app_client):
     rule_yaml = (
-        "keywords: [Acme, Facture]\n"
+        "match: Acme\n"
         "fields:\n"
         "  amount:\n"
         "    regex: \"Total à payer\\\\s+EUR\\\\s+([\\\\d ,-]+)\"\n"
@@ -167,7 +167,7 @@ def test_invalid_yaml_returns_400(app_client):
 
 
 def test_missing_doc_reports_per_doc_error(app_client):
-    r = app_client.post("/api/test", json={"yaml": "keywords: [Acme]\n", "doc_ids": [42, 9999]})
+    r = app_client.post("/api/test", json={"yaml": "match: Acme\n", "doc_ids": [42, 9999]})
     results = r.json()["results"]
     assert len(results) == 2 and "error" in results[1]
 
@@ -225,7 +225,8 @@ def test_bootstrap_returns_suggestion(app_client):
     body = app_client.post("/api/bootstrap", json={"doc_id": 42}).json()
     assert "Acme" in body["issuer"]
     assert body["currency"] == "EUR" and body["language"] == "fr"
-    assert any(f["name"] == "amount" for f in body["fields"])
+    assert "match" in body and body["match"]                   # single match regex
+    assert "Acme" in body["match"] and "Facture" in body["match"]
 
 
 def test_bootstrap_missing_doc_404(app_client):

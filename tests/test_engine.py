@@ -57,31 +57,40 @@ def test_str_coercion_trims():
 
 def make_rule(**kw):
     return {
-        "issuer": "Test", "keywords": [], "exclude_keywords": [],
+        "issuer": "Test", "match": "", "exclude": "",
         "fields": {}, "required_fields": None, "options": {}, **kw,
     }
 
 
-@pytest.mark.parametrize("keywords,matched,missing", [
-    (["Acme", "Facture"], True, []),
-    (["Acme", "AbsentWord"], False, ["AbsentWord"]),
-    (["Acm.", "Facture"], True, []),                    # regex semantics
-    ([r"^Total à payer"], True, []),                    # MULTILINE
+@pytest.mark.parametrize("match,matched", [
+    ("Acme.*?Facture", True),                # spans lines via DOTALL
+    ("Facture", True),
+    ("Acme XYZ_does_not_match", False),
+    (["Acme", "Facture"], True),             # list — all must match
+    (["Acme", "XYZ_no_match"], False),
+    ("", True),                              # empty match → trivially matched
 ])
-def test_keyword_matching(keywords, matched, missing):
-    r = extract_with_rule(ACME, make_rule(keywords=keywords))
+def test_match_field(match, matched):
+    r = extract_with_rule(ACME, make_rule(match=match))
     assert r["matched"] == matched
-    assert r["missing_keywords"] == missing
 
 
-@pytest.mark.parametrize("excludes,matched,excluded_by", [
-    (["Mahnung", "Rappel"], True, None),
-    (["Facture"], False, "Facture"),
+@pytest.mark.parametrize("exclude,matched,excluded_by", [
+    ("Mahnung", True, None),
+    ("Facture", False, "Facture"),
+    (["Mahnung", "Facture"], False, "Facture"),  # list — any disqualifies
 ])
-def test_exclude_keywords(excludes, matched, excluded_by):
-    r = extract_with_rule(ACME, make_rule(keywords=["Acme"], exclude_keywords=excludes))
+def test_exclude_field(exclude, matched, excluded_by):
+    rule = make_rule(match="Acme", exclude=exclude)
+    r = extract_with_rule(ACME, rule)
     assert r["matched"] == matched
     assert r["excluded_by"] == excluded_by
+
+
+def test_empty_exclude_is_ignored():
+    # `exclude: ''` must not disqualify — empty regex would match everything.
+    rule = make_rule(match="Acme", exclude="")
+    assert extract_with_rule(ACME, rule)["matched"]
 
 
 @pytest.mark.parametrize("fname,spec,expected_type,expected_value", [
@@ -93,7 +102,7 @@ def test_exclude_keywords(excludes, matched, excluded_by):
     ("ref", {"regex": r"Numéro de client\s+(\d+)", "type": "str"}, "str", "1234567890"),
 ])
 def test_field_extraction(fname, spec, expected_type, expected_value):
-    f = extract_with_rule(ACME, make_rule(keywords=["Acme"], fields={fname: spec}))
+    f = extract_with_rule(ACME, make_rule(match="Acme", fields={fname: spec}))
     f = f["fields"][fname]
     assert f["ok"]
     assert f["type"] == expected_type
@@ -104,7 +113,7 @@ def test_field_extraction(fname, spec, expected_type, expected_value):
 
 
 def test_value_constant_on_match():
-    rule = make_rule(keywords=["Acme"], fields={
+    rule = make_rule(match="Acme", fields={
         "is_invoice": {"regex": "Facture", "value": "yes", "type": "str"},
     })
     f = extract_with_rule(ACME, rule)["fields"]["is_invoice"]
@@ -112,7 +121,7 @@ def test_value_constant_on_match():
 
 
 def test_value_constant_on_no_match():
-    rule = make_rule(keywords=["Acme"], fields={
+    rule = make_rule(match="Acme", fields={
         "is_overdue": {"regex": "OVERDUE", "value": "yes", "type": "str"},
     })
     f = extract_with_rule(ACME, rule)["fields"]["is_overdue"]
@@ -121,7 +130,7 @@ def test_value_constant_on_no_match():
 
 def test_value_constant_with_pattern_list():
     # Constant is set when ANY pattern matches.
-    rule = make_rule(keywords=["Acme"], fields={
+    rule = make_rule(match="Acme", fields={
         "category": {
             "regex": ["Facture", "Invoice"],   # either trigger
             "value": "billing",
@@ -137,7 +146,7 @@ def test_value_constant_with_pattern_list():
 
 def test_combine_captures_with_separator():
     text = "First name: Alice\nLast name: Smith\n"
-    rule = make_rule(keywords=[], fields={
+    rule = make_rule(match="", fields={
         "full_name": {
             "regex": [r"First name:\s*(\w+)", r"Last name:\s*(\w+)"],
             "combine": " ",
@@ -151,7 +160,7 @@ def test_combine_captures_with_separator():
 def test_combine_partial_match():
     # Only the first regex matches — that capture is used alone.
     text = "First name: Alice\n(no last name on this doc)"
-    rule = make_rule(keywords=[], fields={
+    rule = make_rule(match="", fields={
         "full_name": {
             "regex": [r"First name:\s*(\w+)", r"Last name:\s*(\w+)"],
             "combine": " ",
@@ -164,7 +173,7 @@ def test_combine_partial_match():
 
 def test_combine_no_match_fails():
     text = "Just some unrelated text\n"
-    rule = make_rule(keywords=[], fields={
+    rule = make_rule(match="", fields={
         "full_name": {
             "regex": [r"First name:\s*(\w+)", r"Last name:\s*(\w+)"],
             "combine": " ",
@@ -189,13 +198,13 @@ def test_combine_no_match_fails():
     ({"match": [{"regex": "XYZ", "value": "p"}], "default": "unknown", "type": "str"}, "unknown"),
 ])
 def test_default_fallback_across_modes(spec, expected):
-    rule = make_rule(keywords=[], fields={"f": spec})
+    rule = make_rule(match="", fields={"f": spec})
     f = extract_with_rule(ACME, rule)["fields"]["f"]
     assert f["ok"] and f["value"] == expected
 
 
 def test_default_not_used_when_match_succeeds():
-    rule = make_rule(keywords=[], fields={
+    rule = make_rule(match="", fields={
         "is_invoice": {"regex": "Facture", "value": "yes", "default": "no", "type": "str"},
     })
     f = extract_with_rule(ACME, rule)["fields"]["is_invoice"]
@@ -206,7 +215,7 @@ def test_default_not_used_when_match_succeeds():
 
 
 def test_match_first_arm_wins():
-    rule = make_rule(keywords=[], fields={
+    rule = make_rule(match="", fields={
         "status": {
             "match": [
                 {"regex": r"\bFacture\b",  "value": "billing"},
@@ -221,7 +230,7 @@ def test_match_first_arm_wins():
 
 def test_match_first_arm_misses_second_wins():
     text = "OVERDUE notice — please pay\n"
-    rule = make_rule(keywords=[], fields={
+    rule = make_rule(match="", fields={
         "status": {
             "match": [
                 {"regex": "PAID",    "value": "paid"},
@@ -235,7 +244,7 @@ def test_match_first_arm_misses_second_wins():
 
 
 def test_match_no_arm_matches_fails():
-    rule = make_rule(keywords=[], fields={
+    rule = make_rule(match="", fields={
         "status": {
             "match": [{"regex": "XYZ_no_match", "value": "anything"}],
             "type": "str",
@@ -255,7 +264,7 @@ def test_match_no_arm_matches_fails():
     (-1, "14.04.2024"),
 ])
 def test_pick_chooses_match_position(pick, expected):
-    rule = make_rule(keywords=[], fields={
+    rule = make_rule(match="", fields={
         "d": {
             "regex": r"(\d{2}\.\d{2}\.\d{4})",
             "pick": pick,
@@ -267,7 +276,7 @@ def test_pick_chooses_match_position(pick, expected):
 
 
 def test_pick_out_of_range_fails():
-    rule = make_rule(keywords=[], fields={
+    rule = make_rule(match="", fields={
         "d": {"regex": r"(\d{2}\.\d{2}\.\d{4})", "pick": 99, "type": "str"},
     })
     f = extract_with_rule(ACME, rule)["fields"]["d"]
@@ -279,7 +288,7 @@ def test_pick_out_of_range_fails():
 
 def test_map_substitutes_known_value():
     text = "Country: DE\n"
-    rule = make_rule(keywords=[], fields={
+    rule = make_rule(match="", fields={
         "country": {
             "regex": r"Country:\s*(\w+)",
             "map": {"DE": "Germany", "FR": "France"},
@@ -292,7 +301,7 @@ def test_map_substitutes_known_value():
 
 def test_map_passes_through_unknown_value():
     text = "Country: ZZ\n"
-    rule = make_rule(keywords=[], fields={
+    rule = make_rule(match="", fields={
         "country": {
             "regex": r"Country:\s*(\w+)",
             "map": {"DE": "Germany"},
@@ -314,7 +323,7 @@ def test_map_passes_through_unknown_value():
 ])
 def test_aggregate_over_line_items(op, expected):
     text = "Item A: $10.00\nItem B: $20.50\nItem C: $5.00\n"
-    rule = make_rule(keywords=[], fields={
+    rule = make_rule(match="", fields={
         "agg": {"regex": r"\$([\d.]+)", "aggregate": op, "type": "float"},
     })
     f = extract_with_rule(text, rule)["fields"]["agg"]
@@ -322,7 +331,7 @@ def test_aggregate_over_line_items(op, expected):
 
 
 def test_aggregate_count_with_zero_matches_succeeds():
-    rule = make_rule(keywords=[], fields={
+    rule = make_rule(match="", fields={
         "agg": {"regex": r"DOES_NOT_MATCH_XYZ", "aggregate": "count", "type": "float"},
     })
     f = extract_with_rule(ACME, rule)["fields"]["agg"]
@@ -330,7 +339,7 @@ def test_aggregate_count_with_zero_matches_succeeds():
 
 
 def test_aggregate_sum_with_zero_matches_fails_unless_default():
-    rule = make_rule(keywords=[], fields={
+    rule = make_rule(match="", fields={
         "agg": {"regex": r"XYZ_no_match", "aggregate": "sum", "default": "0", "type": "float"},
     })
     f = extract_with_rule(ACME, rule)["fields"]["agg"]
@@ -342,7 +351,7 @@ def test_aggregate_sum_with_zero_matches_fails_unless_default():
 
 def test_default_all_fields_required():
     rule = make_rule(
-        keywords=["Acme"],
+        match="Acme",
         fields={
             "amount": r"Total à payer\s+EUR\s+([\d ,-]+)",
             "missing": r"XYZ_does_not_match",
@@ -354,15 +363,15 @@ def test_default_all_fields_required():
 
 def test_explicit_required_only():
     rule = make_rule(
-        keywords=["Acme"],
+        match="Acme",
         fields={"amount": r"Total à payer\s+EUR\s+([\d ,-]+)", "opt": r"XYZ"},
         required_fields=["amount"],
     )
     assert extract_with_rule(ACME, rule)["required_ok"]
 
 
-def test_empty_required_passes_with_keywords_alone():
-    rule = make_rule(keywords=["Acme"], fields={"missing": r"XYZ"}, required_fields=[])
+def test_empty_required_passes_with_match_alone():
+    rule = make_rule(match="Acme", fields={"missing": r"XYZ"}, required_fields=[])
     assert extract_with_rule(ACME, rule)["required_ok"]
 
 
@@ -371,35 +380,35 @@ def test_empty_required_passes_with_keywords_alone():
 
 def test_invalid_regex_reports_error():
     f = extract_with_rule(ACME, make_rule(
-        keywords=["Acme"], fields={"x": {"regex": "[unclosed", "type": "float"}},
+        match="Acme", fields={"x": {"regex": "[unclosed", "type": "float"}},
     ))["fields"]["x"]
     assert not f["ok"] and "invalid regex" in (f["error"] or "")
 
 
 def test_unknown_yaml_keys_ignored():
-    rule = make_rule(keywords=["Acme"])
+    rule = make_rule(match="Acme")
     rule["future_feature"] = {"some": "data"}
     assert extract_with_rule(ACME, rule)["matched"]
 
 
 def test_no_regex_in_dict_spec():
     f = extract_with_rule(ACME, make_rule(
-        keywords=["Acme"], fields={"x": {"type": "float"}},
+        match="Acme", fields={"x": {"type": "float"}},
     ))["fields"]["x"]
     assert f["error"] == "no regex defined"
 
 
 def test_none_text_treated_as_empty():
-    assert not extract_with_rule(None, make_rule(keywords=["Acme"]))["matched"]  # type: ignore[arg-type]
+    assert not extract_with_rule(None, make_rule(match="Acme"))["matched"]  # type: ignore[arg-type]
 
 
 # ── load_rules ───────────────────────────────────────────────────────
 
 
 def test_loads_yml_files_alphabetically(tmp_path):
-    (tmp_path / "10_b.yml").write_text("issuer: B\nkeywords: [B]\n")
-    (tmp_path / "01_a.yml").write_text("issuer: A\nkeywords: [A]\n")
-    (tmp_path / "rule.yaml").write_text("issuer: C\nkeywords: [C]\n")
+    (tmp_path / "10_b.yml").write_text("issuer: B\nmatch: B\n")
+    (tmp_path / "01_a.yml").write_text("issuer: A\nmatch: A\n")
+    (tmp_path / "rule.yaml").write_text("issuer: C\nmatch: C\n")
     (tmp_path / "ignore.txt").write_text("nope")
     assert [n for n, _ in load_rules(tmp_path)] == ["01_a.yml", "10_b.yml", "rule.yaml"]
 
@@ -419,11 +428,11 @@ def test_missing_dir_returns_empty(tmp_path):
 
 
 def test_first_matching_rule_wins():
-    a = ("01.yml", {"keywords": ["Acme", "AbsentKW"]})
-    b = ("99.yml", {"keywords": ["Acme"]})
+    a = ("01.yml", {"match": "Acme.*?AbsentKW"})
+    b = ("99.yml", {"match": "Acme"})
     result = find_matching_rule(ACME, [a, b])
     assert result is not None and result[0] == "99.yml"
 
 
 def test_no_match_returns_none():
-    assert find_matching_rule(ACME, [("x.yml", {"keywords": ["XYZ_no_match"]})]) is None
+    assert find_matching_rule(ACME, [("x.yml", {"match": "XYZ_no_match"})]) is None

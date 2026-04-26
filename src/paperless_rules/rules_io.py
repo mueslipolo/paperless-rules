@@ -61,7 +61,7 @@ def list_rules(rules_dir: Path) -> list[dict[str, Any]]:
             {
                 "filename": path.name,
                 "issuer": data.get("issuer", ""),
-                "keywords": list(data.get("keywords") or []),
+                "match": data.get("match", "") or "",
                 "field_count": len(data.get("fields") or {}),
             }
         )

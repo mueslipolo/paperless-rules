@@ -56,56 +56,32 @@ def test_currency_detection(text, expected):
     assert bootstrap_from_text(text)["currency"] == expected
 
 
-# ── keywords ─────────────────────────────────────────────────────────
+# ── match regex ──────────────────────────────────────────────────────
 
 
-def test_keywords_within_bounds(sug):
-    assert 1 <= len(sug["keywords"]) <= 6
+def test_match_combines_issuer_and_doctype(sug):
+    # Acme + Facture in the fixture → "Acme.*?Facture"
+    assert sug["match"] == "Acme.*?Facture"
 
 
-def test_first_two_keywords_pre_checked(sug):
-    assert sug["keywords"][0]["suggested"]
-    if len(sug["keywords"]) >= 2:
-        assert sug["keywords"][1]["suggested"]
+def test_match_falls_back_to_issuer_alone():
+    # No doctype hint in the text → match is just the issuer's first word.
+    text = "Globex Inc\nSome unrelated correspondence here.\n"
+    assert bootstrap_from_text(text)["match"] == "Globex"
 
 
-def test_keywords_include_issuer_or_doctype(sug):
-    phrases = " | ".join(k["phrase"].lower() for k in sug["keywords"])
-    assert "acme" in phrases or "facture" in phrases
+def test_match_falls_back_to_doctype_alone():
+    # Issuer has no usable word → match is just the doctype hint.
+    text = "AG\nFacture\n"  # "AG" is a suffix word, gets filtered out
+    sug = bootstrap_from_text(text)
+    assert "Facture" in sug["match"]
 
 
-def test_no_stop_only_phrases():
-    sug = bootstrap_from_text("Le de à du les pour\n" * 5)
-    stops = {"le", "de", "à", "du", "les", "pour"}
-    for k in sug["keywords"]:
-        assert any(w not in stops for w in k["phrase"].lower().split())
-
-
-# ── fields ───────────────────────────────────────────────────────────
-
-
-@pytest.mark.parametrize("expected", ["amount", "iban", "date", "due_date"])
-def test_field_detected(sug, expected):
-    assert expected in {f["name"] for f in sug["fields"]}
-
-
-def test_amount_value_has_digit(sug):
-    amount = next(f for f in sug["fields"] if f["name"] == "amount")
-    assert any(c.isdigit() for c in amount["sample_value"])
-
-
-def test_iban_starts_with_country_code(sug):
-    iban = next(f for f in sug["fields"] if f["name"] == "iban")
-    assert iban["sample_value"][:2].isalpha() and iban["sample_value"][:2].isupper()
-
-
-def test_at_most_six_fields(sug):
-    assert len(sug["fields"]) <= 6
-
-
-def test_canonical_fields_pre_suggested(sug):
-    suggested = {f["name"] for f in sug["fields"] if f["suggested"]}
-    assert "amount" in suggested and "date" in suggested
+def test_match_actually_fires_against_source(sug):
+    # The bootstrap regex must match the document it was generated from —
+    # otherwise the rule is broken on day one.
+    rule = {"match": sug["match"], "fields": {}, "required_fields": []}
+    assert extract_with_rule(ACME, rule)["matched"]
 
 
 # ── filename ─────────────────────────────────────────────────────────
@@ -132,33 +108,31 @@ def test_reminder_doctype():
 
 def test_skeleton_is_valid_yaml(sug):
     parsed = yaml.safe_load(render_yaml(sug))
-    assert {"issuer", "keywords", "fields", "options"} <= parsed.keys()
+    assert {"issuer", "match", "exclude", "fields", "required_fields", "options"} <= parsed.keys()
 
 
-def test_empty_regex_strings_intentional(sug):
+def test_skeleton_match_uses_detected_regex(sug):
     parsed = yaml.safe_load(render_yaml(sug))
-    for fspec in parsed["fields"].values():
-        assert fspec["regex"] == ""
+    assert parsed["match"] == sug["match"]
 
 
-def test_required_only_typed_fields(sug):
+def test_skeleton_fields_block_is_empty(sug):
     parsed = yaml.safe_load(render_yaml(sug))
-    for fname in parsed["required_fields"]:
-        assert parsed["fields"][fname]["type"] in ("float", "date")
+    assert parsed["fields"] == {}
+    assert parsed["required_fields"] == []
 
 
-def test_user_overrides_keywords_and_fields(sug):
-    parsed = yaml.safe_load(render_yaml(
-        sug, selected_keywords=["only-this"], selected_fields=["amount"]
-    ))
-    assert parsed["keywords"] == ["only-this"]
-    assert list(parsed["fields"].keys()) == ["amount"]
+def test_user_overrides_match(sug):
+    parsed = yaml.safe_load(render_yaml(sug, match="custom-regex-here"))
+    assert parsed["match"] == "custom-regex-here"
 
 
-def test_engine_accepts_skeleton_without_crashing(sug):
+def test_engine_accepts_skeleton(sug):
+    # Skeleton should match the source document since the bootstrap built
+    # the regex from that source.
     parsed = yaml.safe_load(render_yaml(sug))
     r = extract_with_rule(ACME, parsed)
-    assert r["matched"] and not r["required_ok"]
+    assert r["matched"]
 
 
 # ── schema sanity ────────────────────────────────────────────────────
@@ -166,17 +140,5 @@ def test_engine_accepts_skeleton_without_crashing(sug):
 
 def test_top_level_keys(sug):
     assert set(sug) == {
-        "issuer", "language", "currency",
-        "keywords", "fields", "filename_suggestion",
+        "issuer", "language", "currency", "match", "filename_suggestion",
     }
-
-
-def test_keyword_entry_shape(sug):
-    for k in sug["keywords"]:
-        assert set(k) == {"phrase", "score", "suggested"}
-
-
-def test_field_entry_shape(sug):
-    for f in sug["fields"]:
-        assert set(f) == {"name", "label", "sample_value", "regex_hint", "type", "suggested"}
-        assert f["type"] in ("float", "date", "str")
