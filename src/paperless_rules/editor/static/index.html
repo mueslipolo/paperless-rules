@@ -27,6 +27,7 @@ button {
   padding: 4px 10px; cursor: pointer; font-size: 11px;
 }
 button:hover { background: var(--bg-alt); border-color: var(--ink-soft); }
+button[disabled] { opacity: 0.5; cursor: not-allowed; }
 button.primary { background: var(--ink); color: var(--bg); border-color: var(--ink); }
 button.primary:hover { background: var(--ink-soft); }
 input, select, textarea { padding: 3px 6px; }
@@ -37,14 +38,24 @@ input:focus, textarea:focus, select:focus { outline: none; border-color: var(--i
 .dot.error { background: var(--red); }
 .sep { color: var(--line); padding: 0 2px; }
 
+/* topbar — passive: brand, active rule, save status, health */
 #topbar {
   display: flex; align-items: center; gap: 8px; padding: 6px 12px;
   background: var(--bg-alt); border-bottom: 1px solid var(--line); flex-shrink: 0;
 }
 .brand { font-family: var(--serif); font-size: 16px; margin-right: 12px; }
+#active-rule { font-size: 12px; color: var(--ink-soft); }
+#active-rule.has-rule { color: var(--ink); }
+.dirty-dot {
+  display: inline-block; width: 6px; height: 6px; border-radius: 50%;
+  background: var(--amber); opacity: 0; transition: opacity 0.15s;
+}
+.dirty-dot.dirty { opacity: 1; }
 .spacer { flex: 1; }
+#save-status { font-size: 11px; }
+#save-status.saved { color: var(--green); }
+#save-status.error { color: var(--red); }
 #health-status { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; }
-#rule-picker { min-width: 220px; }
 
 #layout {
   flex: 1; display: grid;
@@ -67,10 +78,33 @@ input:focus, textarea:focus, select:focus { outline: none; border-color: var(--i
 .toolbar .grow { flex: 1; }
 .section-header {
   font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em;
-  color: var(--ink-soft); padding: 8px 12px 4px;
+  color: var(--ink-soft); padding: 8px 12px 4px; flex-shrink: 0;
 }
 
-#search-box-wrap { padding: 6px 8px; border-bottom: 1px solid var(--line); }
+/* left pane: rules section above docs */
+#rule-list {
+  max-height: 240px; overflow-y: auto; flex-shrink: 0;
+  border-bottom: 1px solid var(--line);
+}
+.rule-item {
+  display: flex; align-items: center; gap: 6px;
+  padding: 4px 12px; cursor: pointer;
+  border-left: 3px solid transparent; font-size: 12px;
+}
+.rule-item:hover { background: var(--bg); }
+.rule-item.active { background: var(--bg); border-left-color: var(--accent); font-weight: 500; }
+.rule-item .name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rule-item .badge { color: var(--ink-soft); font-size: 10px; }
+.row-action {
+  display: block; margin: 6px 12px;
+  width: calc(100% - 24px); text-align: left;
+  text-transform: none; letter-spacing: 0;
+  padding: 3px 6px; font-size: 11px; background: transparent;
+  color: var(--ink-soft); border: 1px dashed var(--line);
+}
+.row-action:hover { color: var(--ink); border-color: var(--ink-soft); border-style: solid; background: var(--bg); }
+
+#search-box-wrap { padding: 6px 8px; border-bottom: 1px solid var(--line); flex-shrink: 0; }
 #search-box { width: 100%; }
 #doc-list { flex: 1; overflow-y: auto; min-height: 100px; }
 .doc-item {
@@ -173,6 +207,41 @@ input:focus, textarea:focus, select:focus { outline: none; border-color: var(--i
 .field-row .fval { flex: 1; word-break: break-all; }
 #empty-state { padding: 16px 12px; color: var(--ink-soft); font-size: 11px; }
 
+/* footer — passive keyboard hint strip */
+#footer {
+  flex-shrink: 0; padding: 4px 12px;
+  background: var(--bg-alt); border-top: 1px solid var(--line);
+  font-size: 10px; color: var(--ink-soft); text-align: right;
+  letter-spacing: 0.04em;
+}
+#footer kbd {
+  font-family: var(--mono); padding: 0 3px;
+  border: 1px solid var(--line); border-radius: 2px;
+  background: var(--bg); color: var(--ink); font-size: 9px;
+}
+
+/* command palette */
+#palette {
+  margin: 0; padding: 0; border: 1px solid var(--ink);
+  width: 480px; background: var(--bg);
+  position: fixed; top: 80px; left: 50%; transform: translateX(-50%);
+  font-family: var(--mono); box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+}
+#palette::backdrop { background: rgba(0,0,0,0.3); }
+#palette-input {
+  width: 100%; border: none; border-bottom: 1px solid var(--line);
+  padding: 10px 14px; font-size: 13px; background: var(--bg);
+}
+#palette-input:focus { outline: none; }
+#palette-list { max-height: 320px; overflow-y: auto; }
+.palette-row {
+  padding: 6px 14px; cursor: pointer; font-size: 12px;
+}
+.palette-row:hover, .palette-row.active { background: var(--bg-alt); }
+.palette-row.create { color: var(--accent); border-top: 1px solid var(--line); }
+.palette-empty { padding: 12px 14px; color: var(--ink-soft); font-size: 11px; }
+
+/* bootstrap modal */
 #bootstrap-modal {
   position: fixed; inset: 0; z-index: 100;
   display: flex; align-items: center; justify-content: center;
@@ -207,19 +276,24 @@ input:focus, textarea:focus, select:focus { outline: none; border-color: var(--i
 <body>
 <div id="topbar">
   <div class="brand">paperless·rules</div>
-  <select id="rule-picker"><option value="">— rule picker —</option></select>
-  <button id="btn-new">new</button>
-  <button id="btn-bootstrap">bootstrap</button>
-  <button id="btn-save" class="primary">save</button>
-  <button id="btn-del">del</button>
+  <span id="active-rule">— no rule —</span>
+  <span class="dirty-dot" id="dirty-dot" title="unsaved changes"></span>
   <div class="spacer"></div>
+  <span id="save-status" class="muted">—</span>
+  <span class="sep">|</span>
   <span id="health-status"><span class="dot"></span>connecting…</span>
 </div>
 
 <div id="layout">
   <aside id="pane-corpus">
+    <div class="section-header">rules</div>
+    <div id="rule-list"></div>
+    <button id="btn-new-rule" class="row-action">+ new rule</button>
+
+    <div class="section-header">documents</div>
     <div id="search-box-wrap"><input id="search-box" type="search" placeholder="search…"></div>
     <div id="doc-list"></div>
+
     <div id="presets-section">
       <div class="section-header">presets</div>
       <div id="presets-list"></div>
@@ -230,6 +304,8 @@ input:focus, textarea:focus, select:focus { outline: none; border-color: var(--i
     <section id="ocr-section">
       <div class="toolbar">
         <span id="ocr-title" class="grow muted">— select a document —</span>
+        <button id="btn-bootstrap" disabled title="bootstrap a starter rule from this document">bootstrap rule</button>
+        <span class="sep">|</span>
         <label><input type="checkbox" id="show-whitespace"> whitespace</label>
       </div>
       <pre id="ocr-content"></pre>
@@ -301,6 +377,15 @@ input:focus, textarea:focus, select:focus { outline: none; border-color: var(--i
   </aside>
 </div>
 
+<div id="footer">
+  <kbd>⌘P</kbd> switch rule  ·  <kbd>⌘N</kbd> new rule  ·  <kbd>⌘S</kbd> flush save  ·  <kbd>⌘⌫</kbd> delete current rule
+</div>
+
+<dialog id="palette">
+  <input id="palette-input" type="text" placeholder="rule name… (or type a new name to create)" autocomplete="off">
+  <div id="palette-list"></div>
+</dialog>
+
 <div id="bootstrap-modal" hidden>
   <div class="backdrop"></div>
   <div class="modal">
@@ -320,7 +405,7 @@ const $ = s => document.querySelector(s);
 const esc = s => String(s).replace(/[&<>]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;"})[c]);
 const escAttr = s => String(s).replace(/["&<>]/g, c => ({'"':"&quot;","&":"&amp;","<":"&lt;",">":"&gt;"})[c]);
 const debounce = (fn, ms) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; };
-const shortTime = iso => new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+const shortTime = iso => new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 
 const api = {
   json: async (p, opts = {}) => {
@@ -343,7 +428,8 @@ const api = {
 
 const state = {
   docs: [], corpus: new Set(), activeDocId: null, activeDocText: "", activeDocTitle: "",
-  showWhitespace: false, rules: [], currentFilename: "",
+  showWhitespace: false,
+  rules: [], currentFilename: "", dirty: false,
   pattern: "", flags: "", field: "amount", type: "float",
   resultsMode: "pattern", patternResults: null, extractionResults: null,
   bootstrapSuggestion: null,
@@ -358,9 +444,6 @@ const PRESETS = [
   ["email", String.raw`([\w.+-]+@[\w.-]+\.[A-Za-z]{2,})`],
 ];
 
-// YAML snippets for the transform dropdown. Indented to drop in under a
-// field block (`fields.<name>:`) — the user pastes after the `regex:` /
-// `type:` lines and edits the placeholders.
 const SNIPPETS = {
   default: `    default: 'fallback value'\n`,
   match:
@@ -380,14 +463,12 @@ const SNIPPETS = {
 function insertAtCursor(textarea, text) {
   const start = textarea.selectionStart;
   const end = textarea.selectionEnd;
-  const before = textarea.value.slice(0, start);
-  const after = textarea.value.slice(end);
-  textarea.value = before + text + after;
+  textarea.value = textarea.value.slice(0, start) + text + textarea.value.slice(end);
   textarea.focus();
   textarea.selectionStart = textarea.selectionEnd = start + text.length;
 }
 
-// localStorage history, keyed per (rule, field). FIFO 10, no pinning.
+// regex history per (rule, field), localStorage, FIFO 10
 const HKEY = (f, fld) => `paperless-rules:regex-history:${f || "_unsaved"}:${fld || "_default"}`;
 function getHistory(f, fld) {
   try { return JSON.parse(localStorage.getItem(HKEY(f, fld)) || "[]"); }
@@ -431,6 +512,37 @@ function renderHealth(s) {
   }
 }
 
+function renderActiveRule() {
+  const el = $("#active-rule");
+  if (state.currentFilename) {
+    el.textContent = state.currentFilename;
+    el.classList.add("has-rule");
+  } else {
+    el.textContent = "— no rule —";
+    el.classList.remove("has-rule");
+  }
+  $("#dirty-dot").classList.toggle("dirty", state.dirty);
+}
+
+function setSaveStatus(cls, text) {
+  const el = $("#save-status");
+  el.className = cls || "muted";
+  el.textContent = text;
+}
+
+function renderRuleList() {
+  const el = $("#rule-list");
+  if (!state.rules.length) {
+    el.innerHTML = '<div class="muted" style="padding:6px 12px;font-size:11px">no rules yet</div>';
+    return;
+  }
+  el.innerHTML = state.rules.map(r => `
+    <div class="rule-item ${r.filename === state.currentFilename ? "active" : ""}" data-filename="${escAttr(r.filename)}" title="${escAttr(r.filename)}">
+      <span class="name">${esc(r.filename)}</span>
+      <span class="badge">${r.field_count || 0}f</span>
+    </div>`).join("");
+}
+
 function renderDocList() {
   const el = $("#doc-list");
   if (!state.docs.length) { el.innerHTML = '<div id="empty-state">no documents</div>'; return; }
@@ -452,21 +564,18 @@ function renderPresets() {
   ).join("");
 }
 
-function renderRulePicker() {
-  $("#rule-picker").innerHTML = '<option value="">— rule picker —</option>' +
-    state.rules.map(r => `<option value="${escAttr(r.filename)}" ${r.filename === state.currentFilename ? "selected" : ""}>${esc(r.filename)}</option>`).join("");
-}
-
 function renderOCRView() {
   const titleEl = $("#ocr-title");
   if (!state.activeDocId) {
     titleEl.textContent = "— select a document —";
     titleEl.classList.add("muted");
     $("#ocr-content").innerHTML = "";
+    $("#btn-bootstrap").disabled = true;
     return;
   }
   titleEl.classList.remove("muted");
   titleEl.textContent = `Doc #${state.activeDocId} — ${state.activeDocTitle}`;
+  $("#btn-bootstrap").disabled = false;
   let matches = [];
   if (state.patternResults?.ok) {
     const r = state.patternResults.results.find(x => x.doc_id === state.activeDocId);
@@ -605,7 +714,7 @@ async function loadDocs(query = "") {
   catch (e) { $("#doc-list").innerHTML = `<div id="empty-state">error: ${esc(e.message)}</div>`; }
 }
 async function loadRules() {
-  try { state.rules = (await api.listRules()).rules || []; renderRulePicker(); } catch {}
+  try { state.rules = (await api.listRules()).rules || []; renderRuleList(); } catch {}
 }
 async function loadDoc(id) {
   state.activeDocId = id;
@@ -620,7 +729,78 @@ async function loadDoc(id) {
   } catch (e) { state.activeDocTitle = `error: ${e.message}`; renderOCRView(); }
 }
 
+async function loadRule(filename) {
+  if (!filename) return;
+  try {
+    const r = await api.getRule(filename);
+    $("#yaml-editor").value = r.yaml;
+    $("#filename-input").value = filename;
+    state.currentFilename = filename;
+    state.dirty = false;
+    $("#yaml-section").classList.remove("collapsed");
+    $("#yaml-toggle").textContent = "▼ yaml";
+    renderYAMLStatus();
+    renderActiveRule();
+    renderRuleList();
+    setSaveStatus("muted", "loaded");
+    try { localStorage.setItem("paperless-rules:active", filename); } catch {}
+  } catch (e) { alert(`load failed: ${e.message}`); }
+}
+
+function newRule() {
+  $("#yaml-editor").value = "";
+  $("#filename-input").value = "";
+  state.currentFilename = "";
+  state.dirty = false;
+  renderYAMLStatus();
+  renderActiveRule();
+  renderRuleList();
+  setSaveStatus("muted", "—");
+  $("#yaml-section").classList.remove("collapsed");
+  $("#yaml-toggle").textContent = "▼ yaml";
+  $("#filename-input").focus();
+  try { localStorage.removeItem("paperless-rules:active"); } catch {}
+}
+
+async function deleteCurrentRule() {
+  if (!state.currentFilename) {
+    setSaveStatus("muted", "no rule loaded");
+    return;
+  }
+  if (!confirm(`Delete ${state.currentFilename}?`)) return;
+  try {
+    await api.deleteRule(state.currentFilename);
+    newRule();
+    await loadRules();
+    setSaveStatus("muted", "deleted");
+  } catch (e) {
+    setSaveStatus("error", `delete failed: ${e.message.slice(0, 60)}`);
+  }
+}
+
 const debouncedTest = debounce(() => runPatternTest(), 200);
+const debouncedAutoSave = debounce(() => autoSave(), 1500);
+
+async function autoSave() {
+  const yaml = $("#yaml-editor").value;
+  const f = $("#filename-input").value.trim();
+  if (!yaml.trim() || !f) {
+    setSaveStatus("muted", f ? "(empty)" : "set filename");
+    return;
+  }
+  setSaveStatus("muted", "saving…");
+  try {
+    await api.saveRule(f, yaml);
+    state.currentFilename = f;
+    state.dirty = false;
+    renderActiveRule();
+    setSaveStatus("saved", `saved · ${shortTime(new Date().toISOString())}`);
+    await loadRules();
+    try { localStorage.setItem("paperless-rules:active", f); } catch {}
+  } catch (e) {
+    setSaveStatus("error", `error: ${e.message.slice(0, 60)}`);
+  }
+}
 
 async function runPatternTest() {
   state.resultsMode = "pattern";
@@ -725,11 +905,15 @@ function applyPatternToField() {
   $("#yaml-editor").value = updated;
   $("#yaml-section").classList.remove("collapsed");
   $("#yaml-toggle").textContent = "▼ yaml";
+  markDirty();
   renderYAMLStatus();
 }
 
 async function showBootstrap() {
-  if (!state.activeDocId) { alert("select a document first"); return; }
+  if (!state.activeDocId) {
+    setSaveStatus("muted", "select a document first");
+    return;
+  }
   let sug;
   try { sug = await api.bootstrap(state.activeDocId); }
   catch (e) { alert(`bootstrap failed: ${e.message}`); return; }
@@ -787,7 +971,7 @@ function generateRuleFromBootstrap() {
   }
   y += "required_fields:\n";
   y += required.length ? required.map(r => `  - ${r}`).join("\n") + "\n" : "  []\n";
-  y += `options:\n  currency: ${q(sug.currency || "CHF")}\n  date_formats:\n    - '%d.%m.%Y'\n  languages:\n    - ${sug.language || "fr"}\n`;
+  y += `options:\n  currency: ${q(sug.currency || "EUR")}\n  date_formats:\n    - '%d.%m.%Y'\n  languages:\n    - ${sug.language || "en"}\n`;
 
   $("#yaml-editor").value = y;
   $("#filename-input").value = filename;
@@ -795,15 +979,21 @@ function generateRuleFromBootstrap() {
   $("#yaml-section").classList.remove("collapsed");
   $("#yaml-toggle").textContent = "▼ yaml";
   if (state.activeDocId) state.corpus.add(state.activeDocId);
+  markDirty();
   renderYAMLStatus();
+  renderActiveRule();
   renderDocList();
   $("#bootstrap-modal").hidden = true;
+  // Auto-save the freshly generated rule.
+  debouncedAutoSave();
+}
+
+function markDirty() {
+  state.dirty = true;
+  $("#dirty-dot").classList.add("dirty");
 }
 
 function setupSplitter() {
-  // Drag-to-resize the OCR pane vs everything below it. Stores the height
-  // on `--ocr-h` so the grid template picks it up; clamped to leave room
-  // for the regex tester and YAML drawer toolbars.
   const splitter = $("#splitter-ocr");
   if (!splitter) return;
   const pane = $("#pane-middle");
@@ -825,9 +1015,125 @@ function setupSplitter() {
   });
 }
 
+// ── command palette ─────────────────────────────────────────────────
+
+function openPalette() {
+  const dlg = $("#palette");
+  $("#palette-input").value = "";
+  renderPaletteList("");
+  if (!dlg.open) dlg.showModal();
+  $("#palette-input").focus();
+}
+
+function renderPaletteList(query) {
+  const q = query.toLowerCase().trim();
+  const matches = q
+    ? state.rules.filter(r => r.filename.toLowerCase().includes(q))
+    : state.rules.slice();
+  let html = matches.map((r, i) => `
+    <div class="palette-row ${i === 0 ? "active" : ""}" data-filename="${escAttr(r.filename)}">${esc(r.filename)}</div>
+  `).join("");
+  // Offer to create a new rule when the query doesn't exactly match an existing one.
+  if (q && !state.rules.some(r => r.filename.toLowerCase() === q)) {
+    const name = q.endsWith(".yml") || q.endsWith(".yaml") ? q : q + ".yml";
+    html += `<div class="palette-row create" data-create="${escAttr(name)}">+ create ${esc(name)}</div>`;
+  }
+  $("#palette-list").innerHTML = html || '<div class="palette-empty">no rules — type a name to create one</div>';
+}
+
+function paletteCommit(row) {
+  if (!row) return;
+  const dlg = $("#palette");
+  if (row.dataset.filename) {
+    dlg.close();
+    loadRule(row.dataset.filename);
+  } else if (row.dataset.create) {
+    dlg.close();
+    newRule();
+    $("#filename-input").value = row.dataset.create;
+    state.currentFilename = row.dataset.create;
+    renderActiveRule();
+    setSaveStatus("muted", "type yaml then it auto-saves");
+  }
+}
+
+function setupPalette() {
+  const inp = $("#palette-input");
+  const list = $("#palette-list");
+  inp.addEventListener("input", e => renderPaletteList(e.target.value));
+  inp.addEventListener("keydown", e => {
+    const rows = list.querySelectorAll(".palette-row");
+    const active = list.querySelector(".palette-row.active") || rows[0];
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      if (!rows.length) return;
+      let idx = Array.from(rows).indexOf(active);
+      idx += e.key === "ArrowDown" ? 1 : -1;
+      idx = (idx + rows.length) % rows.length;
+      rows.forEach(r => r.classList.remove("active"));
+      rows[idx].classList.add("active");
+      rows[idx].scrollIntoView({ block: "nearest" });
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      paletteCommit(active);
+    }
+  });
+  list.addEventListener("click", e => {
+    const row = e.target.closest(".palette-row");
+    if (row) paletteCommit(row);
+  });
+  $("#palette").addEventListener("close", () => {});
+}
+
+// ── keyboard shortcuts ──────────────────────────────────────────────
+
+function setupKeyboard() {
+  document.addEventListener("keydown", e => {
+    const mod = e.metaKey || e.ctrlKey;
+    if (!mod) return;
+    const k = e.key.toLowerCase();
+    if (k === "p") {
+      e.preventDefault();
+      openPalette();
+    } else if (k === "n") {
+      e.preventDefault();
+      newRule();
+    } else if (k === "s") {
+      e.preventDefault();
+      autoSave();           // flush the debounced save now
+    } else if (e.key === "Backspace" || e.key === "Delete") {
+      e.preventDefault();
+      deleteCurrentRule();
+    }
+  });
+}
+
+// ── wire up ─────────────────────────────────────────────────────────
+
 function wire() {
   setupSplitter();
+  setupPalette();
+
+  // Left pane
   $("#search-box").addEventListener("input", debounce(e => loadDocs(e.target.value), 250));
+  $("#rule-list").addEventListener("click", e => {
+    const item = e.target.closest(".rule-item");
+    if (item) loadRule(item.dataset.filename);
+  });
+  $("#rule-list").addEventListener("contextmenu", e => {
+    const item = e.target.closest(".rule-item");
+    if (!item) return;
+    e.preventDefault();
+    if (confirm(`Delete ${item.dataset.filename}?`)) {
+      api.deleteRule(item.dataset.filename)
+        .then(async () => {
+          if (item.dataset.filename === state.currentFilename) newRule();
+          await loadRules();
+        })
+        .catch(err => alert(`delete failed: ${err.message}`));
+    }
+  });
+  $("#btn-new-rule").addEventListener("click", newRule);
   $("#doc-list").addEventListener("click", async e => {
     if (e.target.matches("input[data-corpus]")) {
       const id = +e.target.dataset.corpus;
@@ -845,10 +1151,22 @@ function wire() {
       renderDocList();
     }
   });
+  $("#presets-list").addEventListener("click", e => {
+    if (e.target.matches(".preset")) {
+      $("#pattern").value = e.target.dataset.pattern;
+      state.pattern = e.target.dataset.pattern;
+      runPatternTest();
+    }
+  });
+
+  // Middle pane — OCR
   $("#show-whitespace").addEventListener("change", e => {
     state.showWhitespace = e.target.checked;
     renderOCRView();
   });
+  $("#btn-bootstrap").addEventListener("click", showBootstrap);
+
+  // Middle pane — regex tester
   $("#pattern").addEventListener("input", e => { state.pattern = e.target.value; debouncedTest(); });
   ["i", "s", "x"].forEach(f => $(`#flag-${f}`).addEventListener("change", () => {
     state.flags = ["i", "s", "x"].filter(x => $(`#flag-${x}`).checked).join("");
@@ -859,77 +1177,49 @@ function wire() {
   $("#hist-btn").addEventListener("click", e => { e.stopPropagation(); showHistoryDropdown(); });
   $("#btn-apply").addEventListener("click", applyPatternToField);
   $("#btn-run-rule").addEventListener("click", runFullRule);
-  $("#presets-list").addEventListener("click", e => {
-    if (e.target.matches(".preset")) {
-      $("#pattern").value = e.target.dataset.pattern;
-      state.pattern = e.target.dataset.pattern;
-      runPatternTest();
-    }
-  });
+
+  // Middle pane — YAML
   $("#yaml-toggle").addEventListener("click", () => {
     const sec = $("#yaml-section");
     sec.classList.toggle("collapsed");
     $("#yaml-toggle").textContent = sec.classList.contains("collapsed") ? "▶ yaml" : "▼ yaml";
   });
-  $("#yaml-editor").addEventListener("input", debounce(renderYAMLStatus, 200));
-  $("#filename-input").addEventListener("input", e => { state.currentFilename = e.target.value; });
+  $("#yaml-editor").addEventListener("input", () => {
+    markDirty();
+    renderYAMLStatus();
+    debouncedAutoSave();
+  });
+  $("#filename-input").addEventListener("input", e => {
+    state.currentFilename = e.target.value;
+    markDirty();
+    renderActiveRule();
+    debouncedAutoSave();
+  });
   $("#snippet-select").addEventListener("change", e => {
     const snippet = SNIPPETS[e.target.value];
-    if (snippet) insertAtCursor($("#yaml-editor"), snippet);
-    e.target.value = "";  // reset the dropdown
+    if (snippet) {
+      insertAtCursor($("#yaml-editor"), snippet);
+      markDirty();
+      debouncedAutoSave();
+    }
+    e.target.value = "";
     renderYAMLStatus();
   });
-  $("#btn-new").addEventListener("click", () => {
-    if (!confirm("discard the current rule?")) return;
-    $("#yaml-editor").value = "";
-    $("#filename-input").value = "";
-    state.currentFilename = "";
-    renderYAMLStatus();
-  });
-  $("#btn-bootstrap").addEventListener("click", showBootstrap);
-  $("#btn-save").addEventListener("click", async () => {
-    const f = $("#filename-input").value.trim();
-    if (!f) { alert("filename required"); return; }
-    try {
-      await api.saveRule(f, $("#yaml-editor").value);
-      state.currentFilename = f;
-      await loadRules();
-      alert(`saved ${f}`);
-    } catch (e) { alert(`save failed: ${e.message}`); }
-  });
-  $("#btn-del").addEventListener("click", async () => {
-    if (!state.currentFilename) { alert("no rule loaded"); return; }
-    if (!confirm(`delete ${state.currentFilename}?`)) return;
-    try {
-      await api.deleteRule(state.currentFilename);
-      $("#yaml-editor").value = "";
-      $("#filename-input").value = "";
-      state.currentFilename = "";
-      await loadRules();
-      renderYAMLStatus();
-    } catch (e) { alert(`delete failed: ${e.message}`); }
-  });
-  $("#rule-picker").addEventListener("change", async e => {
-    if (!e.target.value) return;
-    try {
-      const r = await api.getRule(e.target.value);
-      $("#yaml-editor").value = r.yaml;
-      $("#filename-input").value = e.target.value;
-      state.currentFilename = e.target.value;
-      $("#yaml-section").classList.remove("collapsed");
-      $("#yaml-toggle").textContent = "▼ yaml";
-      renderYAMLStatus();
-    } catch (err) { alert(`load failed: ${err.message}`); }
-  });
-  $("#btn-bs-cancel").addEventListener("click", () => { $("#bootstrap-modal").hidden = true; });
-  $("#btn-bs-generate").addEventListener("click", generateRuleFromBootstrap);
-  $(".backdrop").addEventListener("click", () => { $("#bootstrap-modal").hidden = true; });
+
+  // Right pane
   $("#btn-clear-corpus").addEventListener("click", () => {
     state.corpus.clear();
     renderDocList();
     if (state.pattern) runPatternTest();
   });
+
+  // Bootstrap modal
+  $("#btn-bs-cancel").addEventListener("click", () => { $("#bootstrap-modal").hidden = true; });
+  $("#btn-bs-generate").addEventListener("click", generateRuleFromBootstrap);
+  $(".backdrop").addEventListener("click", () => { $("#bootstrap-modal").hidden = true; });
 }
+
+// ── boot ────────────────────────────────────────────────────────────
 
 (async function boot() {
   renderPresets();
@@ -937,7 +1227,16 @@ function wire() {
   $("#type-select").value = "float";
   state.type = "float";
   wire();
+  setupKeyboard();
   await Promise.all([loadHealth(), loadDocs(), loadRules()]);
+  renderActiveRule();
+  // Restore the rule the user was last editing.
+  try {
+    const last = localStorage.getItem("paperless-rules:active");
+    if (last && state.rules.some(r => r.filename === last)) {
+      await loadRule(last);
+    }
+  } catch {}
 })();
 </script>
 </body>
