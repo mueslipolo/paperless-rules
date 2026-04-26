@@ -32,7 +32,7 @@ ExtractionResult = dict[str, Any]
 
 # Reserved field names that map to paperless built-in metadata. Anything
 # else in `fields:` becomes a custom field of the same name.
-RESERVED_FIELDS = ("correspondent", "document_type", "tags", "title")
+RESERVED_FIELDS = ("correspondent", "document_type", "tags", "title", "created")
 
 # Thousand-separator characters seen in real OCR output: ASCII apostrophe,
 # typographic apostrophe, modifier letter apostrophe, NBSP. Stripped before
@@ -41,7 +41,10 @@ _NOISE_RE = re.compile(r"[\s'’ʼ ]")
 
 _BUILTIN_DATES = [
     "%d.%m.%Y", "%d.%m.%y", "%d-%m-%Y", "%d/%m/%Y",
-    "%Y-%m-%d", "%Y/%m/%d", "%d %B %Y", "%d. %B %Y", "%d %b %Y",
+    "%Y-%m-%d", "%Y/%m/%d",
+    "%d %B %Y", "%d. %B %Y", "%d %b %Y",
+    # hyphen-separated abbreviated month: 13-Feb-2023, 23-Apr-2026
+    "%d-%b-%Y", "%d-%B-%Y",
 ]
 
 _FLOAT_HINTS = ("amount", "total", "price", "sum", "tva", "vat", "tax", "montant")

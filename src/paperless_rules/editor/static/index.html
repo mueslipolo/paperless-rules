@@ -873,7 +873,15 @@ function safeRe(pat, flags) {
 
 // ── constants ───────────────────────────────────────────────────────
 
-const RESERVED_BUILTINS = new Set(["correspondent", "document_type", "tags", "title"]);
+// must stay in sync with engine.py RESERVED_FIELDS
+const RESERVED_BUILTINS = new Set(["correspondent", "document_type", "tags", "title", "created"]);
+const BUILTIN_HINT = {
+  correspondent: "correspondent name",
+  document_type: "document type",
+  tags:          "list of tag names",
+  title:         "string",
+  created:       "document date · ISO YYYY-MM-DD",
+};
 
 // rule type → set of paperless data_types that count as compatible
 // (matches what runtime/apply.py:_TYPE_MAP writes today)
@@ -1954,9 +1962,13 @@ function renderRequiredTags() {
 
 function renderOutcomeCards() {
   const root = $("#outcome-cards");
+  if (!state.rule.match) {
+    root.innerHTML = '<div class="empty">type a match regex above — outcomes show here once the rule has shape</div>';
+    return;
+  }
   const corpus = corpusIds();
   if (!corpus.length) {
-    root.innerHTML = '<div class="empty">type a match regex (or a search) to populate the corpus — outcomes show here</div>';
+    root.innerHTML = '<div class="empty">no matching docs yet — adjust the match regex</div>';
     return;
   }
   if (!state.extraction) {
@@ -2106,13 +2118,13 @@ function renderFieldNameDatalist() {
   const dl = $("#field-names");
   if (!dl) return;
   // built-ins first, then existing paperless custom_fields sorted alpha.
-  const builtins = ["correspondent", "document_type", "tags", "title"];
+  const builtins = [...RESERVED_BUILTINS];
   const customNames = Object.values(state.paperlessFields || {})
     .map(f => f.name)
-    .filter(n => n && !builtins.includes(n))
+    .filter(n => n && !RESERVED_BUILTINS.has(n))
     .sort((a, b) => a.localeCompare(b));
   dl.innerHTML =
-    builtins.map(n => `<option value="${escAttr(n)}">${esc(n)} — built-in</option>`).join("") +
+    builtins.map(n => `<option value="${escAttr(n)}">${esc(n)} — built-in · ${esc(BUILTIN_HINT[n] || "")}</option>`).join("") +
     customNames.map(n => {
       const t = state.paperlessFields[n].data_type;
       return `<option value="${escAttr(n)}">${esc(n)} — paperless · ${esc(t)}</option>`;
@@ -2286,7 +2298,9 @@ async function autoSave() {
 
 async function runFullTest() {
   const corpus = corpusIds();
-  if (!corpus.length) {
+  // No corpus, OR no match regex yet → nothing meaningful to test. Clear the
+  // outcome pane rather than testing a rule that hasn't been written yet.
+  if (!corpus.length || !state.rule.match) {
     state.extraction = null;
     renderOutcomeCards();
     renderMatchCard();

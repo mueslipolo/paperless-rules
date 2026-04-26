@@ -161,6 +161,13 @@ async def apply_rules_to_document(
     if title_field and (overwrite_existing or not doc.get("title")):
         payload["title"] = str(title_field["value"])
 
+    # `created` is paperless's document date (the field labelled "Date" in
+    # the UI). Engine writes it as ISO YYYY-MM-DD via _coerce_date; paperless
+    # accepts that for the `created` API key.
+    created_field = _ok_field(extraction, "created")
+    if created_field and (overwrite_existing or not doc.get("created")):
+        payload["created"] = str(created_field["value"])
+
     # ── custom fields: every other non-reserved, non-internal, ok field ──
 
     cf_writes: list[dict[str, Any]] = []
