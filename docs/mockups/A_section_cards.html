@@ -1,0 +1,1456 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>paperless-rules · editor (Approach A: section cards)</title>
+<style>
+  :root {
+    --bg: #f8f6f1;
+    --bg-alt: #f0ece4;
+    --bg-card: #fdfbf6;
+    --ink: #1a1a1a;
+    --ink-soft: #5c5c5c;
+    --line: #d8d3c7;
+    --accent: #2d6a8a;
+    --green: #2d8a4f;
+    --amber: #b07b1e;
+    --red: #b53939;
+    --mono: 'JetBrains Mono', 'SF Mono', Menlo, monospace;
+    --serif: 'Iowan Old Style', 'Charter', Georgia, serif;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--mono);
+    font-size: 13px;
+    line-height: 1.45;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .app {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+  }
+  .workspace {
+    flex: 1;
+    display: flex;
+    min-height: 0;
+  }
+  .pane-left, .pane-middle, .pane-right {
+    height: 100%;
+    overflow-y: auto;
+    flex-shrink: 0;
+  }
+  .pane-left   { width: var(--w-left,   240px); }
+  .pane-middle { flex: 1 1 auto; min-width: 320px; }
+  .pane-right  { width: var(--w-right,  360px); }
+
+  .gutter {
+    width: 6px;
+    cursor: col-resize;
+    background: var(--bg-alt);
+    border-left:  1px solid var(--line);
+    border-right: 1px solid var(--line);
+    flex-shrink: 0;
+    position: relative;
+    user-select: none;
+    transition: background 0.1s;
+  }
+  .gutter:hover   { background: rgba(45, 106, 138, 0.18); }
+  .gutter.dragging { background: var(--accent); }
+  .gutter::after {
+    content: '';
+    position: absolute;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    width: 1px;
+    height: 28px;
+    background: var(--ink-soft);
+    opacity: 0.35;
+  }
+  body.col-resizing { cursor: col-resize !important; user-select: none; }
+  body.row-resizing { cursor: row-resize !important; user-select: none; }
+
+  .topbar {
+    background: var(--bg-alt);
+    border-bottom: 1px solid var(--line);
+    display: flex;
+    align-items: center;
+    padding: 0 16px;
+    gap: 16px;
+    font-size: 12px;
+  }
+  .topbar .brand {
+    font-family: var(--serif);
+    font-size: 16px;
+    font-weight: 600;
+    letter-spacing: 0.2px;
+  }
+  .topbar .brand small {
+    color: var(--ink-soft);
+    font-family: var(--mono);
+    font-size: 11px;
+    margin-left: 6px;
+    font-weight: 400;
+  }
+  .topbar .crumbs { color: var(--ink-soft); }
+  .topbar .crumbs b { color: var(--ink); font-weight: 600; }
+  .topbar .spacer { flex: 1; }
+  .topbar button {
+    background: var(--bg-card);
+    border: 1px solid var(--line);
+    color: var(--ink);
+    font-family: var(--mono);
+    font-size: 11px;
+    padding: 4px 10px;
+    border-radius: 3px;
+    cursor: pointer;
+  }
+  .topbar button.primary {
+    background: var(--accent);
+    color: #fff;
+    border-color: var(--accent);
+  }
+  .topbar button:hover { filter: brightness(0.97); }
+
+  .pane-left {
+    background: var(--bg-alt);
+    border-right: 1px solid var(--line);
+    overflow-y: auto;
+    padding: 12px 0;
+  }
+  .pane-section {
+    padding: 4px 14px;
+    color: var(--ink-soft);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    margin-top: 12px;
+    margin-bottom: 4px;
+  }
+  .rule-item, .doc-item {
+    padding: 7px 14px;
+    cursor: pointer;
+    border-left: 2px solid transparent;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+  }
+  .rule-item:hover, .doc-item:hover { background: rgba(0,0,0,0.03); }
+  .rule-item.active, .doc-item.active {
+    background: var(--bg-card);
+    border-left-color: var(--accent);
+  }
+  .rule-item .dot, .doc-item .dot {
+    width: 7px; height: 7px; border-radius: 50%;
+    background: var(--green);
+    flex-shrink: 0;
+  }
+  .rule-item .dot.warn { background: var(--amber); }
+  .rule-item .dot.err  { background: var(--red); }
+  .rule-item .name, .doc-item .name {
+    flex: 1;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+  .rule-item .meta, .doc-item .meta {
+    color: var(--ink-soft);
+    font-size: 10px;
+  }
+
+  .pane-middle {
+    overflow-y: auto;
+    background: var(--bg);
+    padding: 16px 18px 60px;
+  }
+  .pane-header {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    margin-bottom: 14px;
+  }
+  .pane-header h1 {
+    font-family: var(--serif);
+    font-size: 19px;
+    font-weight: 600;
+    margin: 0;
+  }
+  .pane-header .sub {
+    color: var(--ink-soft);
+    font-size: 11px;
+  }
+
+  .ocr-view {
+    background: var(--bg-card);
+    border: 1px solid var(--line);
+    border-radius: 5px;
+    padding: 14px 16px;
+    font-size: 12px;
+    margin-bottom: 22px;
+    height: var(--ocr-h, 200px);
+    min-height: 80px;
+    max-height: none;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    line-height: 1.55;
+    position: relative;
+  }
+  .ocr-resize {
+    position: absolute;
+    left: 0; right: 0;
+    bottom: -8px;
+    height: 12px;
+    cursor: row-resize;
+    z-index: 5;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+  }
+  .ocr-resize::before {
+    content: '';
+    width: 38px;
+    height: 3px;
+    background: var(--line);
+    border-radius: 2px;
+    transition: background 0.1s;
+  }
+  .ocr-resize:hover::before,
+  .ocr-resize.dragging::before {
+    background: var(--accent);
+  }
+  .ocr-view .ocr-head {
+    display: flex;
+    justify-content: space-between;
+    color: var(--ink-soft);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    margin-bottom: 8px;
+    padding-bottom: 8px;
+    border-bottom: 1px dashed var(--line);
+  }
+  .ocr-view .doc-tabs {
+    display: flex;
+    gap: 4px;
+  }
+  .ocr-view .doc-tab {
+    cursor: pointer;
+    padding: 1px 7px;
+    border-radius: 2px;
+    color: var(--ink-soft);
+    font-size: 10px;
+  }
+  .ocr-view .doc-tab.active {
+    background: var(--accent);
+    color: #fff;
+  }
+  .ocr-body { font-family: var(--mono); }
+  .ocr-body mark {
+    background: rgba(45, 106, 138, 0.18);
+    color: var(--ink);
+    padding: 0 2px;
+    border-radius: 2px;
+    border-bottom: 1.5px solid var(--accent);
+  }
+  .ocr-body mark.exclude {
+    background: rgba(181, 57, 57, 0.18);
+    border-bottom-color: var(--red);
+  }
+
+  .card {
+    background: var(--bg-card);
+    border: 1px solid var(--line);
+    border-radius: 5px;
+    margin-bottom: 12px;
+    overflow: hidden;
+  }
+  .card-head {
+    display: flex;
+    align-items: center;
+    padding: 8px 14px;
+    background: rgba(0,0,0,0.015);
+    border-bottom: 1px solid var(--line);
+    gap: 10px;
+  }
+  .card-head .label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--ink-soft);
+    font-weight: 600;
+  }
+  .card-head .label.match   { color: var(--accent); }
+  .card-head .label.exclude { color: var(--red); }
+  .card-head .label.fields  { color: var(--ink); }
+  .card-head .help {
+    font-size: 11px;
+    color: var(--ink-soft);
+    flex: 1;
+  }
+  .card-head .stats {
+    font-size: 11px;
+    color: var(--ink-soft);
+    font-variant-numeric: tabular-nums;
+  }
+  .card-head .stats b {
+    color: var(--green);
+    font-weight: 600;
+  }
+  .card-head .stats b.warn { color: var(--amber); }
+  .card-head .stats b.err  { color: var(--red); }
+
+  .card-body { padding: 12px 14px; }
+
+  .regex-row { position: relative; }
+  .regex-row .re-prefix,
+  .regex-row .re-suffix {
+    color: var(--ink-soft);
+    font-size: 12px;
+    user-select: none;
+  }
+  .regex-input {
+    width: 100%;
+    background: var(--bg);
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    padding: 8px 11px;
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--ink);
+    outline: none;
+    transition: border-color 0.1s, box-shadow 0.1s;
+  }
+  .regex-input:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px rgba(45,106,138,0.12);
+  }
+  .regex-input.ok    { border-left: 3px solid var(--green); }
+  .regex-input.warn  { border-left: 3px solid var(--amber); }
+  .regex-input.err   { border-left: 3px solid var(--red); }
+
+  .preview-line {
+    margin-top: 6px;
+    padding: 6px 10px;
+    background: var(--bg);
+    border-radius: 3px;
+    font-size: 11px;
+    color: var(--ink-soft);
+    border: 1px dashed var(--line);
+    min-height: 24px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    overflow: hidden;
+  }
+  .preview-line .preview-tag {
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    color: var(--ink-soft);
+    flex-shrink: 0;
+  }
+  .preview-line .preview-text {
+    color: var(--ink);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .preview-line .preview-text mark {
+    background: rgba(45, 106, 138, 0.22);
+    border-bottom: 1px solid var(--accent);
+    padding: 0 2px;
+    border-radius: 2px;
+  }
+  .preview-line .preview-text mark.exclude {
+    background: rgba(181, 57, 57, 0.22);
+    border-bottom-color: var(--red);
+  }
+  .preview-line .preview-text mark.cap {
+    background: rgba(45, 138, 79, 0.22);
+    border-bottom-color: var(--green);
+    font-weight: 600;
+  }
+  .preview-line.empty { color: var(--ink-soft); font-style: italic; }
+
+  .field-row {
+    display: grid;
+    grid-template-columns: 130px 64px 1fr 72px 150px 22px;
+    gap: 8px;
+    align-items: start;
+    padding: 9px 0;
+    border-bottom: 1px dashed var(--line);
+    position: relative;
+  }
+  .field-row:last-child { border-bottom: none; }
+  .field-row .col { display: flex; flex-direction: column; gap: 4px; }
+  .field-row input[type=text],
+  .field-row select {
+    background: var(--bg);
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    padding: 5px 7px;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--ink);
+    outline: none;
+    width: 100%;
+  }
+  .field-row input[type=text]:focus,
+  .field-row select:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px rgba(45,106,138,0.10);
+  }
+  .field-row input[type=text].ok    { border-left: 3px solid var(--green); }
+  .field-row input[type=text].warn  { border-left: 3px solid var(--amber); }
+  .field-row input[type=text].err   { border-left: 3px solid var(--red); }
+  .field-row .name-input { font-weight: 600; }
+  .field-row .name-input.reserved {
+    color: var(--accent);
+  }
+  .field-row .kind-toggle {
+    display: inline-flex;
+    background: var(--bg);
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    overflow: hidden;
+    height: 26px;
+  }
+  .field-row .kind-toggle button {
+    flex: 1;
+    background: transparent;
+    border: none;
+    color: var(--ink-soft);
+    font-family: var(--mono);
+    font-size: 10px;
+    cursor: pointer;
+    padding: 0 4px;
+  }
+  .field-row .kind-toggle button.active {
+    background: var(--accent);
+    color: #fff;
+  }
+  .field-row .row-stats {
+    font-size: 10px;
+    color: var(--ink-soft);
+    margin-top: 2px;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.3;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .field-row .row-stats b { color: var(--green); font-weight: 600; }
+  .field-row .row-stats b.warn { color: var(--amber); }
+  .field-row .row-stats b.err { color: var(--red); }
+  .field-row .row-stats .sample {
+    color: var(--ink);
+    background: rgba(45, 138, 79, 0.10);
+    padding: 0 4px;
+    border-radius: 2px;
+    margin-left: 4px;
+  }
+  .field-row .delete-btn {
+    background: transparent;
+    border: none;
+    color: var(--ink-soft);
+    cursor: pointer;
+    font-size: 14px;
+    line-height: 22px;
+    height: 26px;
+    width: 22px;
+    border-radius: 3px;
+    opacity: 0;
+    transition: opacity 0.1s;
+  }
+  .field-row:hover .delete-btn { opacity: 1; }
+  .field-row .delete-btn:hover { background: rgba(181,57,57,0.10); color: var(--red); }
+
+  .add-field-row {
+    margin-top: 8px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .add-field-row button {
+    background: transparent;
+    border: 1px dashed var(--line);
+    border-radius: 3px;
+    padding: 6px 10px;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--ink-soft);
+    cursor: pointer;
+  }
+  .add-field-row button:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+
+  .required-row {
+    margin-top: 12px;
+    padding-top: 10px;
+    border-top: 1px solid var(--line);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 11px;
+    color: var(--ink-soft);
+    flex-wrap: wrap;
+  }
+  .required-row .req-tag {
+    background: rgba(176,123,30,0.12);
+    color: var(--amber);
+    border: 1px solid rgba(176,123,30,0.3);
+    padding: 2px 7px;
+    border-radius: 11px;
+    font-size: 10px;
+    cursor: pointer;
+    user-select: none;
+  }
+  .required-row .req-tag.off {
+    background: transparent;
+    color: var(--ink-soft);
+    border-color: var(--line);
+  }
+
+  .raw-toggle {
+    margin-top: 18px;
+    text-align: center;
+  }
+  .raw-toggle button {
+    background: transparent;
+    border: 1px solid var(--line);
+    color: var(--ink-soft);
+    padding: 5px 14px;
+    font-family: var(--mono);
+    font-size: 11px;
+    border-radius: 3px;
+    cursor: pointer;
+  }
+  .raw-toggle button:hover { color: var(--accent); border-color: var(--accent); }
+
+  .raw-yaml {
+    display: none;
+    background: var(--bg-card);
+    border: 1px solid var(--line);
+    border-radius: 5px;
+    margin-top: 12px;
+    padding: 14px 16px;
+    font-size: 12px;
+    white-space: pre;
+    overflow-x: auto;
+    line-height: 1.5;
+    color: var(--ink);
+  }
+  .raw-yaml.shown { display: block; }
+  .raw-yaml .k { color: var(--accent); }
+  .raw-yaml .s { color: var(--green); }
+  .raw-yaml .c { color: var(--ink-soft); font-style: italic; }
+
+  .pane-right {
+    background: var(--bg-alt);
+    border-left: 1px solid var(--line);
+    overflow-y: auto;
+    padding: 16px 14px;
+  }
+  .pane-right h2 {
+    font-family: var(--serif);
+    font-size: 15px;
+    font-weight: 600;
+    margin: 0 0 4px 0;
+  }
+  .pane-right .sub {
+    color: var(--ink-soft);
+    font-size: 11px;
+    margin-bottom: 14px;
+  }
+  .outcome-card {
+    background: var(--bg-card);
+    border: 1px solid var(--line);
+    border-radius: 5px;
+    margin-bottom: 12px;
+    overflow: hidden;
+  }
+  .outcome-card .oc-head {
+    padding: 8px 12px;
+    background: rgba(0,0,0,0.015);
+    border-bottom: 1px solid var(--line);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 11px;
+  }
+  .outcome-card .oc-head .doc-name {
+    flex: 1;
+    font-weight: 600;
+    font-size: 11px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .outcome-card .oc-head .verdict {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    padding: 1px 7px;
+    border-radius: 9px;
+    font-weight: 600;
+  }
+  .verdict.pass {
+    background: rgba(45,138,79,0.12);
+    color: var(--green);
+  }
+  .verdict.skip {
+    background: rgba(176,123,30,0.12);
+    color: var(--amber);
+  }
+  .verdict.fail {
+    background: rgba(181,57,57,0.12);
+    color: var(--red);
+  }
+  .outcome-card .oc-body {
+    padding: 8px 12px;
+    font-size: 11px;
+  }
+  .outcome-card .oc-row {
+    display: flex;
+    padding: 3px 0;
+    gap: 8px;
+    border-bottom: 1px dotted var(--line);
+  }
+  .outcome-card .oc-row:last-child { border-bottom: none; }
+  .outcome-card .oc-row .key {
+    color: var(--ink-soft);
+    width: 95px;
+    flex-shrink: 0;
+  }
+  .outcome-card .oc-row .val {
+    color: var(--ink);
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .outcome-card .oc-row .val.miss { color: var(--red); font-style: italic; }
+  .outcome-card .oc-row .val.builtin {
+    color: var(--accent);
+  }
+  .outcome-card .oc-row .key::before {
+    content: '';
+    display: inline-block;
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--green);
+    margin-right: 6px;
+    vertical-align: middle;
+  }
+  .outcome-card .oc-row.miss .key::before { background: var(--red); }
+  .outcome-card .oc-note {
+    margin-top: 6px;
+    font-size: 10px;
+    color: var(--ink-soft);
+    font-style: italic;
+  }
+
+  .pill {
+    display: inline-block;
+    padding: 1px 6px;
+    border-radius: 9px;
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    background: rgba(45,106,138,0.10);
+    color: var(--accent);
+    border: 1px solid rgba(45,106,138,0.25);
+  }
+  .pill.builtin { background: rgba(45,106,138,0.10); color: var(--accent); }
+  .pill.custom  { background: rgba(0,0,0,0.04); color: var(--ink-soft); border-color: var(--line); }
+
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--line); border-radius: 4px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--ink-soft); }
+</style>
+</head>
+<body>
+
+<div class="app">
+
+  <div class="topbar">
+    <span class="brand">paperless-rules <small>v0.4.2</small></span>
+    <span class="crumbs">rules / <b>acme-telecom-invoice.yaml</b></span>
+    <span class="spacer"></span>
+    <span style="color:var(--green); font-size:11px;">● 3/3 docs match · saved 12s ago</span>
+    <button>Validate</button>
+    <button>Test all</button>
+    <button class="primary">Apply</button>
+  </div>
+
+  <div class="workspace" id="workspace">
+  <aside class="pane-left">
+    <div class="pane-section">Rules</div>
+    <div class="rule-item"><span class="dot"></span><span class="name">acme-telecom-invoice</span><span class="meta">3/3</span></div>
+    <div class="rule-item active"><span class="dot"></span><span class="name">acme-telecom-invoice</span><span class="meta">3/3</span></div>
+    <div class="rule-item"><span class="dot warn"></span><span class="name">swisscom-bill</span><span class="meta">2/4</span></div>
+    <div class="rule-item"><span class="dot"></span><span class="name">salt-mobile-invoice</span><span class="meta">5/5</span></div>
+    <div class="rule-item"><span class="dot err"></span><span class="name">orange-fr-facture</span><span class="meta">0/2</span></div>
+    <div class="rule-item"><span class="dot"></span><span class="name">credit-suisse-statement</span><span class="meta">8/8</span></div>
+    <div class="rule-item"><span class="dot warn"></span><span class="name">migros-receipt</span><span class="meta">11/14</span></div>
+
+    <div class="pane-section">Corpus · 3 docs</div>
+    <div class="doc-item active" data-doc="0"><span class="dot"></span><span class="name">acme_2024-03.pdf</span></div>
+    <div class="doc-item" data-doc="1"><span class="dot"></span><span class="name">acme_2024-04.pdf</span></div>
+    <div class="doc-item" data-doc="2"><span class="dot"></span><span class="name">acme_2024-05.pdf</span></div>
+
+    <div class="pane-section">History</div>
+    <div class="doc-item"><span class="meta">3m</span><span class="name">edit fields.amount</span></div>
+    <div class="doc-item"><span class="meta">8m</span><span class="name">add fields.iban</span></div>
+    <div class="doc-item"><span class="meta">14m</span><span class="name">edit match</span></div>
+  </aside>
+
+  <div class="gutter" data-gutter="left"></div>
+
+  <main class="pane-middle">
+    <div class="pane-header">
+      <h1>acme-telecom-invoice</h1>
+      <span class="sub">3 docs in corpus · custom + built-in fields</span>
+    </div>
+
+    <div class="ocr-view">
+      <div class="ocr-head">
+        <span>OCR · text layer</span>
+        <div class="doc-tabs">
+          <span class="doc-tab active" data-doc="0">acme_2024-03.pdf</span>
+          <span class="doc-tab" data-doc="1">acme_2024-04.pdf</span>
+          <span class="doc-tab" data-doc="2">acme_2024-05.pdf</span>
+        </div>
+      </div>
+      <div class="ocr-body" id="ocr-body"></div>
+      <div class="ocr-resize" id="ocr-resize" title="drag to resize"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <span class="label match">MATCH</span>
+        <span class="help">Document text must match this pattern.</span>
+        <span class="stats" id="match-stats">— —</span>
+      </div>
+      <div class="card-body">
+        <input class="regex-input" id="match-input"
+               value="Acme Télécom.*?Facture mensuelle"
+               spellcheck="false" autocomplete="off">
+        <div class="preview-line" id="match-preview">
+          <span class="preview-tag">match in active doc:</span>
+          <span class="preview-text"></span>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <span class="label exclude">EXCLUDE</span>
+        <span class="help">Skip the document if this pattern matches.</span>
+        <span class="stats" id="exclude-stats">— —</span>
+      </div>
+      <div class="card-body">
+        <input class="regex-input" id="exclude-input"
+               value="Rappel"
+               spellcheck="false" autocomplete="off">
+        <div class="preview-line" id="exclude-preview">
+          <span class="preview-tag">match in active doc:</span>
+          <span class="preview-text"></span>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <span class="label fields">FIELDS</span>
+        <span class="help">Extract values. Built-ins write to paperless directly; others become custom fields.</span>
+        <span class="stats" id="fields-stats">6 fields · 5/6 OK</span>
+      </div>
+      <div class="card-body">
+        <div id="field-rows"></div>
+
+        <div class="add-field-row">
+          <button id="add-field-btn">+ add field</button>
+          <span style="color:var(--ink-soft); font-size:10px;">name a built-in (correspondent, document_type, tags, title) or anything else for a custom field</span>
+        </div>
+
+        <div class="required-row">
+          <span>required:</span>
+          <span class="req-tag" data-req="amount">amount ×</span>
+          <span class="req-tag" data-req="date">date ×</span>
+          <span class="req-tag off" data-req="invoice_number">+ invoice_number</span>
+          <span class="req-tag off" data-req="iban">+ iban</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="raw-toggle">
+      <button id="raw-toggle-btn">show raw YAML</button>
+    </div>
+    <pre class="raw-yaml" id="raw-yaml"></pre>
+  </main>
+
+  <div class="gutter" data-gutter="right"></div>
+
+  <aside class="pane-right">
+    <h2>Extraction outcome</h2>
+    <div class="sub">What this rule writes to paperless, per document.</div>
+    <div id="outcome-cards"></div>
+  </aside>
+  </div>
+
+</div>
+
+<script>
+"use strict";
+
+const CORPUS = [
+  {
+    name: "acme_2024-03.pdf",
+    text:
+`ACME TÉLÉCOM (Europe) SARL
+12, rue des Câbles · 75008 Paris · France
+TVA: FR12345678901
+
+Facture mensuelle — Mars 2024
+Numéro de facture  987654321
+Date d'émission    15.03.2024
+
+Abonnement fibre 1 Gb/s        EUR    49,90
+Forfait mobile 5G illimité     EUR    29,90
+Options & services             EUR  1 154,70
+─────────────────────────────────────────────
+Total à payer    EUR    1 234,50
+
+Coordonnées de paiement:
+IBAN  FR76 3000 4000 5000 6000 7000 189
+BIC   BNPAFRPPXXX
+
+Merci de votre fidélité.`
+  },
+  {
+    name: "acme_2024-04.pdf",
+    text:
+`ACME TÉLÉCOM (Europe) SARL
+12, rue des Câbles · 75008 Paris · France
+
+Facture mensuelle — Avril 2024
+Numéro de facture  987655012
+Date d'émission    15.04.2024
+
+Abonnement fibre 1 Gb/s        EUR    49,90
+Forfait mobile 5G illimité     EUR    29,90
+─────────────────────────────────────────────
+Total à payer    EUR       79,80
+
+IBAN  FR76 3000 4000 5000 6000 7000 189`
+  },
+  {
+    name: "acme_2024-05.pdf",
+    text:
+`ACME TÉLÉCOM (Europe) SARL
+
+Facture mensuelle — Mai 2024
+Numéro de facture  987655488
+Date d'émission    15.05.2024
+
+Abonnement fibre 1 Gb/s        EUR    49,90
+Forfait mobile 5G illimité     EUR    29,90
+Frais de retard                EUR     5,00
+─────────────────────────────────────────────
+Total à payer    EUR       84,80
+
+IBAN  FR76 3000 4000 5000 6000 7000 189
+Note: Rappel de paiement précédent réglé.`
+  }
+];
+
+const RESERVED = new Set(["correspondent", "document_type", "tags", "title"]);
+
+const state = {
+  activeDoc: 0,
+  match:   "Acme Télécom.*?Facture mensuelle",
+  exclude: "Rappel",
+  fields: [
+    { name: "correspondent",   kind: "value",    body: "Acme Télécom (Europe) SARL", type: "string" },
+    { name: "document_type",   kind: "value",    body: "Invoice",                    type: "string" },
+    { name: "tags",            kind: "value",    body: "invoice, telecom, monthly",   type: "list"   },
+    { name: "amount",          kind: "regex",    body: "Total à payer\\s+EUR\\s+([\\d ,]+)", type: "float"  },
+    { name: "date",            kind: "regex",    body: "Date d'émission\\s+(\\d{2}\\.\\d{2}\\.\\d{4})", type: "date" },
+    { name: "invoice_number",  kind: "regex",    body: "Numéro de facture\\s+(\\d+)", type: "string" },
+    { name: "title",           kind: "template", body: "{date} Acme #{invoice_number} EUR{amount}", type: "string" },
+  ],
+  required: new Set(["amount", "date"]),
+};
+
+function safeRe(pat, flags) {
+  try { return new RegExp(pat, flags); } catch (e) { return null; }
+}
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c =>
+    ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
+}
+function highlight(text, pat, klass) {
+  const re = safeRe(pat, "g");
+  if (!re || !pat) return escapeHtml(text);
+  let out = "", last = 0, m, guard = 0;
+  while ((m = re.exec(text)) && guard++ < 1000) {
+    if (m.index === re.lastIndex) re.lastIndex++;
+    out += escapeHtml(text.slice(last, m.index));
+    out += `<mark class="${klass}">${escapeHtml(m[0])}</mark>`;
+    last = m.index + m[0].length;
+  }
+  out += escapeHtml(text.slice(last));
+  return out;
+}
+function corpusStats(pat) {
+  if (!pat) return { docs: 0, total: 0, ok: false };
+  const re = safeRe(pat, "g");
+  if (!re) return { docs: 0, total: 0, error: true };
+  let docs = 0, total = 0;
+  for (const d of CORPUS) {
+    const ms = d.text.match(safeRe(pat, "g")) || [];
+    if (ms.length) docs++;
+    total += ms.length;
+  }
+  return { docs, total };
+}
+function snippetAround(text, pat, klass) {
+  const re = safeRe(pat);
+  if (!re || !pat) return '<span style="color:var(--ink-soft); font-style:italic;">empty pattern</span>';
+  const m = text.match(re);
+  if (!m) return '<span style="color:var(--red); font-style:italic;">no match</span>';
+  const start = Math.max(0, m.index - 20);
+  const end = Math.min(text.length, m.index + m[0].length + 20);
+  let snip = text.slice(start, end).replace(/\n/g, " · ");
+  return (start > 0 ? "…" : "") + highlight(snip, pat, klass) + (end < text.length ? "…" : "");
+}
+
+function renderOcr() {
+  const doc = CORPUS[state.activeDoc];
+  let html = highlight(doc.text, state.match, "");
+  const exRe = safeRe(state.exclude, "g");
+  if (exRe && state.exclude) {
+    html = html.replace(/(<mark[^>]*>[^<]*<\/mark>)|([^<]+)/g, (full, mk, txt) => {
+      if (mk) return mk;
+      return txt.replace(exRe, m => `<mark class="exclude">${escapeHtml(m)}</mark>`);
+    });
+  }
+  document.getElementById("ocr-body").innerHTML = html;
+}
+
+function renderMatch() {
+  const input = document.getElementById("match-input");
+  input.value = state.match;
+  const stats = corpusStats(state.match);
+  const statsEl = document.getElementById("match-stats");
+  if (stats.error) {
+    statsEl.innerHTML = `<b class="err">invalid regex</b>`;
+    input.classList.remove("ok","warn"); input.classList.add("err");
+  } else {
+    const cls = stats.docs === CORPUS.length ? "" : (stats.docs ? "warn" : "err");
+    statsEl.innerHTML = `<b class="${cls}">${stats.docs}/${CORPUS.length} docs</b> · ${stats.total} matches`;
+    input.classList.remove("ok","warn","err");
+    input.classList.add(stats.docs === CORPUS.length ? "ok" : (stats.docs ? "warn" : "err"));
+  }
+  const previewText = document.querySelector("#match-preview .preview-text");
+  previewText.innerHTML = snippetAround(CORPUS[state.activeDoc].text, state.match, "");
+}
+
+function renderExclude() {
+  const input = document.getElementById("exclude-input");
+  input.value = state.exclude;
+  const stats = corpusStats(state.exclude);
+  const statsEl = document.getElementById("exclude-stats");
+  if (!state.exclude) {
+    statsEl.innerHTML = `<span style="color:var(--ink-soft);">no exclude · all pass</span>`;
+    input.classList.remove("ok","warn","err");
+  } else if (stats.error) {
+    statsEl.innerHTML = `<b class="err">invalid regex</b>`;
+    input.classList.remove("ok","warn"); input.classList.add("err");
+  } else {
+    const labelCls = stats.docs ? "warn" : "";
+    const label = stats.docs ? `excludes ${stats.docs}/${CORPUS.length}` : `0/${CORPUS.length} excluded`;
+    statsEl.innerHTML = `<b class="${labelCls}">${label}</b> · ${stats.total} matches`;
+    input.classList.remove("ok","warn","err");
+    input.classList.add(stats.docs ? "warn" : "ok");
+  }
+  const previewText = document.querySelector("#exclude-preview .preview-text");
+  previewText.innerHTML = snippetAround(CORPUS[state.activeDoc].text, state.exclude, "exclude");
+}
+
+function fieldExtract(field, text) {
+  if (field.kind === "value") return field.body.trim();
+  if (field.kind === "template") return null;
+  if (field.kind === "regex") {
+    const re = safeRe(field.body);
+    if (!re) return { error: true };
+    const m = text.match(re);
+    if (!m) return null;
+    return (m[1] !== undefined ? m[1] : m[0]).trim();
+  }
+}
+
+function renderFieldRows() {
+  const root = document.getElementById("field-rows");
+  root.innerHTML = "";
+  state.fields.forEach((f, i) => {
+    const row = document.createElement("div");
+    row.className = "field-row";
+
+    const nameCol = document.createElement("div");
+    nameCol.className = "col";
+    const nameInp = document.createElement("input");
+    nameInp.type = "text";
+    nameInp.value = f.name;
+    nameInp.className = "name-input" + (RESERVED.has(f.name) ? " reserved" : "");
+    nameInp.addEventListener("input", e => {
+      f.name = e.target.value.trim();
+      nameInp.classList.toggle("reserved", RESERVED.has(f.name));
+      pill.textContent = RESERVED.has(f.name) ? "built-in" : "custom";
+      pill.className = "pill " + (RESERVED.has(f.name) ? "builtin" : "custom");
+      renderRowStats(); renderOutcome(); renderRawYaml();
+    });
+    const pill = document.createElement("span");
+    pill.className = "pill " + (RESERVED.has(f.name) ? "builtin" : "custom");
+    pill.style.alignSelf = "flex-start";
+    pill.textContent = RESERVED.has(f.name) ? "built-in" : "custom";
+    nameCol.appendChild(nameInp);
+    nameCol.appendChild(pill);
+    row.appendChild(nameCol);
+
+    const kindCol = document.createElement("div");
+    kindCol.className = "col";
+    const toggle = document.createElement("div");
+    toggle.className = "kind-toggle";
+    ["regex","value","template"].forEach(k => {
+      const b = document.createElement("button");
+      b.textContent = k === "regex" ? "re" : (k === "value" ? "val" : "tpl");
+      b.title = k;
+      if (f.kind === k) b.classList.add("active");
+      b.addEventListener("click", () => {
+        f.kind = k;
+        renderFieldRows(); renderOutcome(); renderRawYaml();
+      });
+      toggle.appendChild(b);
+    });
+    kindCol.appendChild(toggle);
+    row.appendChild(kindCol);
+
+    const bodyCol = document.createElement("div");
+    bodyCol.className = "col";
+    const bodyInp = document.createElement("input");
+    bodyInp.type = "text";
+    bodyInp.value = f.body;
+    bodyInp.spellcheck = false;
+    bodyInp.placeholder = f.kind === "regex"
+      ? "/^pattern (capture)$/"
+      : (f.kind === "template" ? "{date} {invoice_number}" : "literal value");
+    bodyInp.addEventListener("input", e => {
+      f.body = e.target.value;
+      renderRowStats(); renderOutcome(); renderRawYaml();
+    });
+    bodyCol.appendChild(bodyInp);
+    const stats = document.createElement("div");
+    stats.className = "row-stats";
+    bodyCol.appendChild(stats);
+    row.appendChild(bodyCol);
+
+    const typeCol = document.createElement("div");
+    typeCol.className = "col";
+    const typeSel = document.createElement("select");
+    ["string","float","int","date","list","bool"].forEach(t => {
+      const o = document.createElement("option");
+      o.value = t; o.textContent = t;
+      if (f.type === t) o.selected = true;
+      typeSel.appendChild(o);
+    });
+    typeSel.addEventListener("change", e => {
+      f.type = e.target.value;
+      renderOutcome(); renderRawYaml();
+    });
+    typeCol.appendChild(typeSel);
+    row.appendChild(typeCol);
+
+    const sampleCol = document.createElement("div");
+    sampleCol.className = "col";
+    const sampleLine = document.createElement("div");
+    sampleLine.className = "row-stats";
+    sampleLine.style.fontSize = "10px";
+    sampleCol.appendChild(sampleLine);
+    row.appendChild(sampleCol);
+
+    const del = document.createElement("button");
+    del.className = "delete-btn";
+    del.title = "delete field";
+    del.textContent = "×";
+    del.addEventListener("click", () => {
+      state.fields.splice(i, 1);
+      state.required.delete(f.name);
+      renderFieldRows(); renderOutcome(); renderRawYaml();
+    });
+    row.appendChild(del);
+
+    function renderRowStats() {
+      bodyInp.classList.remove("ok", "warn", "err");
+      if (f.kind === "value") {
+        bodyInp.classList.add("ok");
+        stats.innerHTML = `<b>literal</b> · same on every doc`;
+        sampleLine.innerHTML = `<span class="sample">${escapeHtml(f.body || "—")}</span>`;
+        return;
+      }
+      if (f.kind === "template") {
+        const v = validateTemplate(f.body, f.name);
+        if (v.cycle) {
+          bodyInp.classList.add("err");
+          stats.innerHTML = `<b class="err">cycle detected</b> · references back to <code>${escapeHtml(f.name)}</code>`;
+          sampleLine.innerHTML = `<span style="color:var(--red);">— cycle blocks resolution</span>`;
+        } else if (v.missing.length) {
+          bodyInp.classList.add("err");
+          stats.innerHTML = `<b class="err">unknown field${v.missing.length === 1 ? "" : "s"}:</b> ${v.missing.map(m => "{" + escapeHtml(m) + "}").join(", ")}`;
+          sampleLine.innerHTML = `<span style="color:var(--red);">— add the missing field${v.missing.length === 1 ? "" : "s"} or fix the placeholder</span>`;
+        } else if (!v.refs.length) {
+          bodyInp.classList.add("warn");
+          stats.innerHTML = `<b class="warn">literal template</b> · no <code>{placeholders}</code>`;
+          sampleLine.innerHTML = `<span class="sample">${escapeHtml(f.body || "—")}</span>`;
+        } else {
+          bodyInp.classList.add("ok");
+          stats.innerHTML = `<b>${v.refs.length} placeholder${v.refs.length === 1 ? "" : "s"}</b> · ${v.refs.map(r => "{" + escapeHtml(r) + "}").join(" ")}`;
+          const resolved = resolveTemplate(f.body, state.activeDoc, f.name);
+          const stillUnresolved = /\{[a-zA-Z_]\w*\}/.test(resolved);
+          sampleLine.innerHTML = stillUnresolved
+            ? `<span style="color:var(--amber);">${escapeHtml(resolved)}</span>`
+            : `<span class="sample">${escapeHtml(resolved)}</span>`;
+        }
+        return;
+      }
+      let docs = 0, sample = null, errored = false;
+      for (let di = 0; di < CORPUS.length; di++) {
+        const r = fieldExtract(f, CORPUS[di].text);
+        if (r && r.error) { errored = true; break; }
+        if (r) { docs++; if (di === state.activeDoc) sample = r; }
+      }
+      if (errored) {
+        bodyInp.classList.add("err");
+        stats.innerHTML = `<b class="err">invalid regex</b>`;
+        sampleLine.innerHTML = "";
+      } else {
+        const cls = docs === CORPUS.length ? "ok" : (docs ? "warn" : "err");
+        bodyInp.classList.add(cls);
+        const lcls = cls === "ok" ? "" : cls;
+        stats.innerHTML = `<b class="${lcls}">${docs}/${CORPUS.length} docs</b>`;
+        if (sample !== null) {
+          sampleLine.innerHTML = `<span class="sample">${escapeHtml(sample)}</span>`;
+        } else {
+          const r = fieldExtract(f, CORPUS[state.activeDoc].text);
+          if (r === null) sampleLine.innerHTML = `<span style="color:var(--red);">no match in active doc</span>`;
+          else sampleLine.innerHTML = "";
+        }
+      }
+    }
+
+    renderRowStats();
+    root.appendChild(row);
+  });
+
+  let okCount = 0;
+  state.fields.forEach(f => {
+    if (f.kind === "value") { okCount++; return; }
+    if (f.kind === "template") { okCount++; return; }
+    let allOk = true;
+    for (const d of CORPUS) if (!fieldExtract(f, d.text)) { allOk = false; break; }
+    if (allOk) okCount++;
+  });
+  document.getElementById("fields-stats").innerHTML =
+    `${state.fields.length} fields · <b class="${okCount === state.fields.length ? "" : "warn"}">${okCount}/${state.fields.length} OK</b>`;
+}
+
+function templateRefs(body) {
+  return [...String(body || "").matchAll(/\{(\w+)\}/g)].map(m => m[1]);
+}
+
+function validateTemplate(body, ownerName) {
+  const refs = templateRefs(body);
+  const missing = [];
+  let cycle = false;
+  const fieldByName = n => state.fields.find(x => x.name === n);
+
+  for (const r of refs) {
+    if (r === ownerName) { cycle = true; continue; }
+    if (!fieldByName(r))  { if (!missing.includes(r)) missing.push(r); continue; }
+    // walk transitive deps; revisiting owner → cycle
+    const seen = new Set([ownerName]);
+    const stack = [r];
+    while (stack.length) {
+      const cur = stack.pop();
+      if (seen.has(cur)) continue;
+      seen.add(cur);
+      const f = fieldByName(cur);
+      if (!f || f.kind !== "template") continue;
+      for (const sub of templateRefs(f.body)) {
+        if (sub === ownerName) { cycle = true; break; }
+        if (!seen.has(sub)) stack.push(sub);
+      }
+      if (cycle) break;
+    }
+    if (cycle) break;
+  }
+  return { refs, missing, cycle };
+}
+
+function resolveTemplate(tpl, docIdx, ownerName, visited) {
+  visited = visited ? new Set(visited) : new Set();
+  if (ownerName) visited.add(ownerName);
+  return String(tpl || "").replace(/\{(\w+)\}/g, (_, key) => {
+    if (visited.has(key)) return `{${key}}`;
+    const f = state.fields.find(x => x.name === key);
+    if (!f) return `{${key}}`;
+    if (f.kind === "template") {
+      return resolveTemplate(f.body, docIdx, key, visited);
+    }
+    if (f.kind === "value") return f.body;
+    const v = fieldExtract(f, CORPUS[docIdx].text);
+    if (v === null || (v && v.error)) return `{${key}}`;
+    return v;
+  });
+}
+
+function renderOutcome() {
+  const root = document.getElementById("outcome-cards");
+  root.innerHTML = "";
+  CORPUS.forEach((doc, i) => {
+    const card = document.createElement("div");
+    card.className = "outcome-card";
+
+    const matchRe = safeRe(state.match);
+    const exRe    = safeRe(state.exclude);
+    const matched = matchRe && matchRe.test(doc.text);
+    const excluded = exRe && state.exclude && exRe.test(doc.text);
+
+    let verdict, verdictClass;
+    if (!matched) { verdict = "skip · no match"; verdictClass = "skip"; }
+    else if (excluded) { verdict = "skip · excluded"; verdictClass = "skip"; }
+    else {
+      let allReq = true, missing = [];
+      for (const reqName of state.required) {
+        const f = state.fields.find(x => x.name === reqName);
+        if (!f) continue;
+        const v = fieldExtract(f, doc.text);
+        if (v === null || (v && v.error)) { allReq = false; missing.push(reqName); }
+      }
+      if (!allReq) { verdict = "fail · missing " + missing.join(","); verdictClass = "fail"; }
+      else { verdict = "pass"; verdictClass = "pass"; }
+    }
+
+    const head = document.createElement("div");
+    head.className = "oc-head";
+    head.innerHTML = `<span class="doc-name">${escapeHtml(doc.name)}</span>
+                      <span class="verdict ${verdictClass}">${verdict}</span>`;
+    card.appendChild(head);
+
+    const body = document.createElement("div");
+    body.className = "oc-body";
+    state.fields.forEach(f => {
+      let val;
+      if (f.kind === "template") {
+        const v = validateTemplate(f.body, f.name);
+        if (v.cycle) val = { error: true, msg: "cycle" };
+        else if (v.missing.length) val = { error: true, msg: "missing " + v.missing.join(",") };
+        else val = resolveTemplate(f.body, i, f.name);
+      }
+      else val = fieldExtract(f, doc.text);
+      const row = document.createElement("div");
+      row.className = "oc-row" + ((val === null || (val && val.error)) ? " miss" : "");
+      const isBuiltin = RESERVED.has(f.name);
+      const valHtml = (val === null)
+        ? `<span class="val miss">— no match</span>`
+        : (val && val.error)
+          ? `<span class="val miss">${escapeHtml(val.msg || "invalid regex")}</span>`
+          : `<span class="val${isBuiltin ? " builtin" : ""}">${escapeHtml(String(val))}</span>`;
+      row.innerHTML = `<span class="key">${escapeHtml(f.name)}</span>${valHtml}`;
+      body.appendChild(row);
+    });
+
+    if (verdictClass === "skip" && !matched) {
+      const note = document.createElement("div");
+      note.className = "oc-note";
+      note.textContent = "MATCH didn't fire — nothing written.";
+      body.appendChild(note);
+    } else if (verdictClass === "skip" && excluded) {
+      const note = document.createElement("div");
+      note.className = "oc-note";
+      note.textContent = "EXCLUDE fired — paperless will ignore this doc.";
+      body.appendChild(note);
+    }
+
+    card.appendChild(body);
+    root.appendChild(card);
+  });
+}
+
+function renderRawYaml() {
+  const lines = [];
+  lines.push(`<span class="k">match</span>:   '${escapeHtml(state.match)}'`);
+  if (state.exclude) lines.push(`<span class="k">exclude</span>: '${escapeHtml(state.exclude)}'`);
+  lines.push(`<span class="k">fields</span>:`);
+  state.fields.forEach(f => {
+    const indent = "  ";
+    lines.push(`${indent}<span class="k">${escapeHtml(f.name)}</span>:`);
+    if (f.kind === "value") {
+      lines.push(`${indent}  <span class="k">value</span>: <span class="s">${escapeHtml(f.body)}</span>`);
+    } else if (f.kind === "regex") {
+      lines.push(`${indent}  <span class="k">regex</span>: <span class="s">'${escapeHtml(f.body)}'</span>`);
+      lines.push(`${indent}  <span class="k">type</span>:  ${escapeHtml(f.type)}`);
+    } else if (f.kind === "template") {
+      lines.push(`${indent}  <span class="k">template</span>: <span class="s">'${escapeHtml(f.body)}'</span>`);
+    }
+  });
+  if (state.required.size) {
+    lines.push(`<span class="k">required</span>: [${[...state.required].join(", ")}]`);
+  }
+  document.getElementById("raw-yaml").innerHTML = lines.join("\n");
+}
+
+function wireMiddle() {
+  document.getElementById("match-input").addEventListener("input", e => {
+    state.match = e.target.value;
+    renderMatch(); renderOcr(); renderOutcome(); renderRawYaml();
+  });
+  document.getElementById("exclude-input").addEventListener("input", e => {
+    state.exclude = e.target.value;
+    renderExclude(); renderOcr(); renderOutcome(); renderRawYaml();
+  });
+  document.getElementById("add-field-btn").addEventListener("click", () => {
+    state.fields.push({ name: "new_field", kind: "regex", body: "", type: "string" });
+    renderFieldRows(); renderOutcome(); renderRawYaml();
+  });
+  document.getElementById("raw-toggle-btn").addEventListener("click", () => {
+    const yaml = document.getElementById("raw-yaml");
+    const btn = document.getElementById("raw-toggle-btn");
+    yaml.classList.toggle("shown");
+    btn.textContent = yaml.classList.contains("shown") ? "hide raw YAML" : "show raw YAML";
+  });
+  document.querySelectorAll(".doc-tab").forEach(tab => {
+    tab.addEventListener("click", () => {
+      const idx = +tab.dataset.doc;
+      state.activeDoc = idx;
+      document.querySelectorAll(".doc-tab").forEach(t => t.classList.toggle("active", +t.dataset.doc === idx));
+      document.querySelectorAll(".pane-left .doc-item[data-doc]").forEach(t =>
+        t.classList.toggle("active", +t.dataset.doc === idx));
+      renderAll();
+    });
+  });
+  document.querySelectorAll(".pane-left .doc-item[data-doc]").forEach(item => {
+    item.addEventListener("click", () => {
+      const idx = +item.dataset.doc;
+      state.activeDoc = idx;
+      document.querySelectorAll(".doc-tab").forEach(t => t.classList.toggle("active", +t.dataset.doc === idx));
+      document.querySelectorAll(".pane-left .doc-item[data-doc]").forEach(t =>
+        t.classList.toggle("active", +t.dataset.doc === idx));
+      renderAll();
+    });
+  });
+  document.querySelectorAll(".req-tag").forEach(tag => {
+    tag.addEventListener("click", () => {
+      const name = tag.dataset.req;
+      if (state.required.has(name)) {
+        state.required.delete(name);
+        tag.classList.add("off");
+        tag.textContent = "+ " + name;
+      } else {
+        state.required.add(name);
+        tag.classList.remove("off");
+        tag.textContent = name + " ×";
+      }
+      renderOutcome(); renderRawYaml();
+    });
+  });
+}
+
+function renderAll() {
+  renderOcr();
+  renderMatch();
+  renderExclude();
+  renderFieldRows();
+  renderOutcome();
+  renderRawYaml();
+}
+
+wireMiddle();
+renderAll();
+
+// ── resizable left/middle/right splitters ────────────────────────────
+function setupGutter(g) {
+  const side = g.dataset.gutter;            // 'left' | 'right'
+  const ws = document.getElementById("workspace");
+  let dragging = false, startX = 0, startW = 0;
+  g.addEventListener("mousedown", e => {
+    dragging = true;
+    g.classList.add("dragging");
+    document.body.classList.add("col-resizing");
+    startX = e.clientX;
+    const cs = getComputedStyle(ws);
+    const v = side === "left"
+      ? cs.getPropertyValue("--w-left")  || "240px"
+      : cs.getPropertyValue("--w-right") || "360px";
+    startW = parseInt(v, 10) || (side === "left" ? 240 : 360);
+    e.preventDefault();
+  });
+  document.addEventListener("mousemove", e => {
+    if (!dragging) return;
+    const dx = e.clientX - startX;
+    if (side === "left") {
+      const w = Math.max(180, Math.min(520, startW + dx));
+      ws.style.setProperty("--w-left", w + "px");
+    } else {
+      const w = Math.max(240, Math.min(720, startW - dx));
+      ws.style.setProperty("--w-right", w + "px");
+    }
+  });
+  document.addEventListener("mouseup", () => {
+    if (!dragging) return;
+    dragging = false;
+    g.classList.remove("dragging");
+    document.body.classList.remove("col-resizing");
+  });
+}
+document.querySelectorAll(".gutter").forEach(setupGutter);
+
+// ── resizable OCR text view ──────────────────────────────────────────
+(function setupOcrResize() {
+  const handle = document.getElementById("ocr-resize");
+  const view   = document.querySelector(".ocr-view");
+  let dragging = false, startY = 0, startH = 0;
+  handle.addEventListener("mousedown", e => {
+    dragging = true;
+    handle.classList.add("dragging");
+    document.body.classList.add("row-resizing");
+    startY = e.clientY;
+    startH = view.offsetHeight;
+    e.preventDefault();
+  });
+  document.addEventListener("mousemove", e => {
+    if (!dragging) return;
+    const h = Math.max(80, Math.min(700, startH + (e.clientY - startY)));
+    view.style.setProperty("--ocr-h", h + "px");
+  });
+  document.addEventListener("mouseup", () => {
+    if (!dragging) return;
+    dragging = false;
+    handle.classList.remove("dragging");
+    document.body.classList.remove("row-resizing");
+  });
+})();
+</script>
+
+</body>
+</html>

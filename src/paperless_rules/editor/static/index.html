@@ -5,384 +5,842 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>paperless·rules</title>
 <style>
-:root {
-  --bg: #f8f6f1; --bg-alt: #f0ece4; --bg-card: #fdfbf6;
-  --ink: #1a1a1a; --ink-soft: #5c5c5c; --line: #d8d3c7;
-  --accent: #2d6a8a; --green: #2d8a4f; --amber: #b07b1e; --red: #b53939; --grey: #888;
-  --serif: "Iowan Old Style", "Charter", Palatino, Georgia, serif;
-  --mono: "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
-}
-* { box-sizing: border-box; margin: 0; padding: 0; }
-html, body { height: 100%; }
-body {
-  font-family: var(--mono); font-size: 13px; line-height: 1.45;
-  background: var(--bg); color: var(--ink);
-  display: flex; flex-direction: column; overflow: hidden;
-}
-button, input, select, textarea {
-  font: inherit; color: inherit; background: var(--bg); border: 1px solid var(--line);
-}
-button {
-  text-transform: uppercase; letter-spacing: 0.05em;
-  padding: 4px 10px; cursor: pointer; font-size: 11px;
-}
-button:hover { background: var(--bg-alt); border-color: var(--ink-soft); }
-button[disabled] { opacity: 0.5; cursor: not-allowed; }
-button.primary { background: var(--ink); color: var(--bg); border-color: var(--ink); }
-button.primary:hover { background: var(--ink-soft); }
-input, select, textarea { padding: 3px 6px; }
-input:focus, textarea:focus, select:focus { outline: none; border-color: var(--ink); }
-.muted { color: var(--ink-soft); }
-.dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--grey); margin-right: 4px; }
-.dot.ok { background: var(--green); }
-.dot.error { background: var(--red); }
-.sep { color: var(--line); padding: 0 2px; }
+  :root {
+    --bg: #f8f6f1; --bg-alt: #f0ece4; --bg-card: #fdfbf6;
+    --ink: #1a1a1a; --ink-soft: #5c5c5c; --line: #d8d3c7;
+    --accent: #2d6a8a; --green: #2d8a4f; --amber: #b07b1e; --red: #b53939; --grey: #888;
+    --mono: 'JetBrains Mono', 'SF Mono', Menlo, Consolas, monospace;
+    --serif: 'Iowan Old Style', 'Charter', Palatino, Georgia, serif;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    font-family: var(--mono); font-size: 13px; line-height: 1.45;
+    background: var(--bg); color: var(--ink);
+    -webkit-font-smoothing: antialiased;
+  }
 
-/* topbar — passive: brand, active rule, save status, health */
-#topbar {
-  display: flex; align-items: center; gap: 8px; padding: 6px 12px;
-  background: var(--bg-alt); border-bottom: 1px solid var(--line); flex-shrink: 0;
-}
-.brand { font-family: var(--serif); font-size: 16px; margin-right: 12px; }
-#active-rule { font-size: 12px; color: var(--ink-soft); }
-#active-rule.has-rule { color: var(--ink); }
-.dirty-dot {
-  display: inline-block; width: 6px; height: 6px; border-radius: 50%;
-  background: var(--amber); opacity: 0; transition: opacity 0.15s;
-}
-.dirty-dot.dirty { opacity: 1; }
-.spacer { flex: 1; }
-#save-status { font-size: 11px; }
-#save-status.saved { color: var(--green); }
-#save-status.error { color: var(--red); }
-#health-status { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; }
+  .app { display: flex; flex-direction: column; height: 100vh; }
+  .workspace { flex: 1; display: flex; min-height: 0; }
+  .pane-left, .pane-middle, .pane-right {
+    height: 100%; overflow-y: auto; flex-shrink: 0;
+  }
+  .pane-left   { width: var(--w-left, 240px); }
+  .pane-middle { flex: 1 1 auto; min-width: 360px; }
+  .pane-right  { width: var(--w-right, 360px); }
 
-#layout {
-  flex: 1; display: grid;
-  grid-template-columns: 280px 1fr 360px;
-  min-height: 0;
-}
-#pane-corpus, #pane-middle, #pane-results {
-  border-right: 1px solid var(--line);
-  display: flex; flex-direction: column; min-height: 0; overflow: hidden;
-}
-#pane-corpus, #pane-results { background: var(--bg-alt); }
-#pane-results { border-right: none; }
+  .gutter {
+    width: 6px; cursor: col-resize; background: var(--bg-alt);
+    border-left: 1px solid var(--line); border-right: 1px solid var(--line);
+    flex-shrink: 0; position: relative; user-select: none;
+    transition: background 0.1s;
+  }
+  .gutter:hover { background: rgba(45,106,138,0.18); }
+  .gutter.dragging { background: var(--accent); }
+  .gutter::after {
+    content: ''; position: absolute; top: 50%; left: 50%;
+    transform: translate(-50%, -50%); width: 1px; height: 28px;
+    background: var(--ink-soft); opacity: 0.35;
+  }
+  body.col-resizing { cursor: col-resize !important; user-select: none; }
+  body.row-resizing { cursor: row-resize !important; user-select: none; }
 
-.toolbar {
-  display: flex; align-items: center; gap: 8px;
-  padding: 4px 12px; background: var(--bg-alt);
-  border-bottom: 1px solid var(--line);
-  font-size: 11px; flex-shrink: 0;
-}
-.toolbar .grow { flex: 1; }
-.section-header {
-  font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em;
-  color: var(--ink-soft); padding: 8px 12px 4px; flex-shrink: 0;
-}
+  /* topbar */
+  .topbar {
+    background: var(--bg-alt); border-bottom: 1px solid var(--line);
+    display: flex; align-items: center; padding: 0 16px; gap: 12px;
+    font-size: 12px; flex-shrink: 0; height: 44px;
+  }
+  .topbar .brand {
+    font-family: var(--serif); font-size: 16px; font-weight: 600;
+    letter-spacing: 0.2px;
+  }
+  .topbar .brand small {
+    color: var(--ink-soft); font-family: var(--mono); font-size: 11px;
+    margin-left: 6px; font-weight: 400;
+  }
+  .topbar .crumbs { color: var(--ink-soft); }
+  .topbar .crumbs b { color: var(--ink); font-weight: 600; }
+  .topbar input.filename {
+    background: var(--bg-card); border: 1px solid var(--line);
+    border-radius: 3px; padding: 3px 8px;
+    font-family: var(--mono); font-size: 12px; color: var(--ink);
+    min-width: 220px;
+  }
+  .topbar input.filename:focus { outline: none; border-color: var(--accent); }
+  .dirty-dot {
+    display: inline-block; width: 6px; height: 6px; border-radius: 50%;
+    background: var(--amber); opacity: 0; transition: opacity 0.15s;
+  }
+  .dirty-dot.dirty { opacity: 1; }
+  .topbar .spacer { flex: 1; }
+  .topbar #save-status { font-size: 11px; color: var(--ink-soft); }
+  .topbar #save-status.ok    { color: var(--green); }
+  .topbar #save-status.error { color: var(--red); }
+  .topbar #health-pill {
+    display: inline-flex; align-items: center; gap: 5px;
+    font-size: 11px; color: var(--ink-soft);
+  }
+  .topbar #health-pill .dot {
+    display: inline-block; width: 7px; height: 7px; border-radius: 50%;
+    background: var(--grey);
+  }
+  .topbar #health-pill.ok    .dot { background: var(--green); }
+  .topbar #health-pill.error .dot { background: var(--red); }
+  .topbar button {
+    background: var(--bg-card); border: 1px solid var(--line);
+    color: var(--ink); font-family: var(--mono); font-size: 11px;
+    padding: 4px 10px; border-radius: 3px; cursor: pointer;
+  }
+  .topbar button:hover { filter: brightness(0.97); }
+  .topbar button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .topbar button.icon { padding: 4px 7px; font-size: 13px; line-height: 1; }
 
-/* left pane: rules section above docs */
-#rule-list {
-  max-height: 240px; overflow-y: auto; flex-shrink: 0;
-  border-bottom: 1px solid var(--line);
-}
-.rule-item {
-  display: flex; align-items: center; gap: 6px;
-  padding: 4px 12px; cursor: pointer;
-  border-left: 3px solid transparent; font-size: 12px;
-}
-.rule-item:hover { background: var(--bg); }
-.rule-item.active { background: var(--bg); border-left-color: var(--accent); font-weight: 500; }
-.rule-item .name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.rule-item .badge { color: var(--ink-soft); font-size: 10px; }
-.row-action {
-  display: block; margin: 6px 12px;
-  width: calc(100% - 24px); text-align: left;
-  text-transform: none; letter-spacing: 0;
-  padding: 3px 6px; font-size: 11px; background: transparent;
-  color: var(--ink-soft); border: 1px dashed var(--line);
-}
-.row-action:hover { color: var(--ink); border-color: var(--ink-soft); border-style: solid; background: var(--bg); }
+  /* left pane */
+  .pane-left {
+    background: var(--bg-alt); border-right: 1px solid var(--line);
+    padding: 12px 0;
+  }
+  .pane-section {
+    padding: 4px 14px; color: var(--ink-soft); font-size: 10px;
+    text-transform: uppercase; letter-spacing: 0.8px;
+    margin-top: 12px; margin-bottom: 4px;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .pane-section button.inline {
+    background: transparent; border: none; color: var(--ink-soft);
+    cursor: pointer; font-family: var(--mono); font-size: 11px;
+    padding: 0; text-transform: none; letter-spacing: 0;
+  }
+  .pane-section button.inline:hover { color: var(--accent); }
+  .rule-item, .doc-item {
+    padding: 6px 14px; cursor: pointer;
+    border-left: 2px solid transparent;
+    display: flex; align-items: center; gap: 7px; font-size: 12px;
+  }
+  .rule-item:hover, .doc-item:hover { background: rgba(0,0,0,0.03); }
+  .rule-item.active, .doc-item.active {
+    background: var(--bg-card); border-left-color: var(--accent);
+  }
+  .rule-item .dot, .doc-item .dot {
+    width: 7px; height: 7px; border-radius: 50%;
+    background: var(--green); flex-shrink: 0;
+  }
+  .rule-item .dot.warn { background: var(--amber); }
+  .rule-item .dot.err  { background: var(--red); }
+  .rule-item .name, .doc-item .name {
+    flex: 1; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+  }
+  .rule-item .meta, .doc-item .meta {
+    color: var(--ink-soft); font-size: 10px;
+  }
+  .doc-item .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); flex-shrink: 0; }
+  .doc-item .dot.warn { background: var(--amber); }
+  .doc-item .dot.err  { background: var(--red); }
+  .doc-item .id { color: var(--ink-soft); font-size: 10px; }
+  .docs-banner {
+    padding: 4px 14px; font-size: 10px; color: var(--ink-soft);
+    text-transform: uppercase; letter-spacing: 0.4px;
+    border-bottom: 1px solid var(--line); margin-bottom: 4px;
+  }
+  .docs-banner b { color: var(--ink); font-weight: 600; }
+  #search-box-wrap { padding: 4px 14px; }
+  #search-box {
+    width: 100%; background: var(--bg-card); border: 1px solid var(--line);
+    border-radius: 3px; padding: 4px 8px; font-family: var(--mono); font-size: 11px;
+  }
+  #search-box:focus { outline: none; border-color: var(--accent); }
+  .row-action {
+    display: block; margin: 6px 14px; width: calc(100% - 28px);
+    text-align: left; background: transparent; border: 1px dashed var(--line);
+    color: var(--ink-soft); padding: 5px 10px; border-radius: 3px;
+    cursor: pointer; font-family: var(--mono); font-size: 11px;
+  }
+  .row-action:hover { border-color: var(--accent); color: var(--accent); }
+  .empty {
+    padding: 14px; color: var(--ink-soft); font-size: 11px; font-style: italic;
+  }
 
-#search-box-wrap { padding: 6px 8px; border-bottom: 1px solid var(--line); flex-shrink: 0; }
-#search-box { width: 100%; }
-#doc-list { flex: 1; overflow-y: auto; min-height: 100px; }
-.doc-item {
-  display: flex; align-items: center; gap: 6px;
-  padding: 4px 8px; border-bottom: 1px solid var(--line);
-  cursor: pointer; border-left: 3px solid transparent;
-}
-.doc-item:hover, .doc-item.active { background: var(--bg); }
-.doc-item.active { border-left-color: var(--accent); }
-.doc-item .id { color: var(--ink-soft); font-size: 11px; min-width: 28px; }
-.doc-item .title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
-.match-badge { color: var(--green); font-size: 10px; }
-.match-badge.zero { color: var(--ink-soft); }
+  /* middle pane */
+  .pane-middle {
+    background: var(--bg); padding: 16px 18px 60px;
+  }
+  .pane-header {
+    display: flex; align-items: baseline; gap: 12px; margin-bottom: 14px;
+  }
+  .pane-header h1 {
+    font-family: var(--serif); font-size: 19px; font-weight: 600; margin: 0;
+  }
+  .pane-header .sub { color: var(--ink-soft); font-size: 11px; }
 
-#presets-section { border-top: 1px solid var(--line); padding: 6px 8px 12px; flex-shrink: 0; }
-.preset {
-  display: block; width: 100%; text-align: left;
-  text-transform: none; letter-spacing: 0;
-  margin-bottom: 3px; padding: 3px 6px; font-size: 11px; background: var(--bg);
-}
-.preset:hover { background: var(--bg-alt); border-color: var(--ink); }
+  /* two-step workflow stepper */
+  .stepper {
+    display: flex; align-items: center; gap: 12px;
+    margin-bottom: 14px; padding: 4px 0;
+  }
+  .stepper .step {
+    display: flex; align-items: center; gap: 8px;
+    background: var(--bg-card); border: 1px solid var(--line);
+    color: var(--ink-soft); font-family: var(--mono); font-size: 12px;
+    padding: 8px 14px; border-radius: 5px; cursor: pointer;
+    transition: all 0.1s;
+  }
+  .stepper .step:hover { border-color: var(--accent); color: var(--ink); }
+  .stepper .step.active {
+    background: var(--accent); color: #fff; border-color: var(--accent);
+  }
+  .stepper .step.complete {
+    background: rgba(45,138,79,0.10);
+    border-color: rgba(45,138,79,0.4);
+    color: var(--green);
+  }
+  .stepper .step.complete.active {
+    background: var(--green); color: #fff; border-color: var(--green);
+  }
+  .stepper .step .num {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 20px; height: 20px; border-radius: 50%;
+    background: rgba(255,255,255,0.18); color: inherit;
+    font-size: 11px; font-weight: 600;
+  }
+  .stepper .step.complete .num::before { content: "✓"; }
+  .stepper .step.complete .num > * { display: none; }
+  .stepper .step .title { font-weight: 600; }
+  .stepper .step .desc {
+    font-size: 10px; opacity: 0.75; text-transform: uppercase;
+    letter-spacing: 0.4px;
+  }
+  .stepper .step-arrow { color: var(--ink-soft); font-size: 14px; }
 
-#pane-middle {
-  background: var(--bg); display: flex; flex-direction: column;
-  min-height: 0;
-}
-.splitter {
-  flex: 0 0 5px; background: var(--line); cursor: ns-resize; user-select: none;
-}
-.splitter:hover, .splitter.dragging { background: var(--ink-soft); }
-#ocr-section {
-  flex: 1 1 0; min-height: 80px;
-  display: flex; flex-direction: column; overflow: hidden;
-}
-#lower-stack {
-  flex: 0 0 var(--lower-h, auto); min-height: 0;
-  display: flex; flex-direction: column; overflow: hidden;
-}
-#ocr-content {
-  flex: 1; overflow: auto; padding: 12px 16px;
-  white-space: pre-wrap; word-break: break-word; font-size: 12px;
-}
-#ocr-content mark {
-  background: rgba(45, 138, 79, 0.22);
-  border-bottom: 2px solid var(--green);
-  color: inherit; padding: 1px 0;
-}
-.ws-glyph { color: var(--line); }
+  .step-banner {
+    background: rgba(45,106,138,0.06);
+    border: 1px solid rgba(45,106,138,0.2);
+    border-left: 3px solid var(--accent);
+    padding: 8px 14px; border-radius: 4px;
+    font-size: 11px; color: var(--ink-soft);
+    margin-bottom: 14px;
+  }
+  .step-banner b { color: var(--ink); font-weight: 600; }
 
-#regex-tester {
-  background: var(--bg-alt); border-top: 1px solid var(--line);
-  padding: 8px 12px; flex-shrink: 0;
-}
-.pattern-row { display: flex; align-items: center; gap: 4px; }
-.slash { color: var(--ink-soft); font-size: 16px; }
-#pattern { flex: 1; padding: 5px 8px; font-size: 13px; }
-.controls-row, .stats-row {
-  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
-  font-size: 11px; margin: 4px 0;
-}
-.controls-row label { display: flex; align-items: center; gap: 3px; }
-#corpus-stats { font-weight: 500; }
-#corpus-stats.error { color: var(--red); }
-#groups { font-size: 11px; margin: 4px 0; max-height: 100px; overflow-y: auto; }
-.group-row { display: flex; gap: 6px; padding: 1px 0; }
-.group-row .gk { color: var(--ink-soft); width: 22px; flex-shrink: 0; }
-.group-row .gv { flex: 1; word-break: break-all; }
-.coerced { color: var(--green); font-weight: 500; }
-.actions { display: flex; gap: 6px; margin-top: 6px; }
+  /* step visibility */
+  .pane-middle.step-1 #card-fields,
+  .pane-middle.step-1 #card-options,
+  .pane-middle.step-1 .raw-toggle,
+  .pane-middle.step-1 #raw-yaml,
+  .pane-middle.step-1 #selection-summary,
+  .pane-middle.step-1 #step2-banner   { display: none !important; }
 
-#yaml-section { background: var(--bg); border-top: 1px solid var(--line); flex-shrink: 0; }
-#yaml-section.collapsed #yaml-editor { display: none; }
-#yaml-editor {
-  width: 100%; height: 220px; border: none;
-  border-top: 1px solid var(--line); padding: 8px 12px;
-  resize: vertical; font-size: 12px; display: block;
-}
-#yaml-status.ok { color: var(--green); }
-#yaml-status.error { color: var(--red); }
+  .pane-middle.step-2 #card-match,
+  .pane-middle.step-2 #card-exclude,
+  .pane-middle.step-2 #step1-banner   { display: none !important; }
 
-.hist-dropdown {
-  position: absolute; background: var(--bg-card); border: 1px solid var(--ink);
-  width: 460px; max-height: 280px; overflow-y: auto; z-index: 50; font-size: 11px;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-}
-.hist-row { display: flex; gap: 8px; padding: 4px 8px; border-bottom: 1px solid var(--line); cursor: pointer; }
-.hist-row:hover { background: var(--bg); }
-.hist-row .ts { color: var(--ink-soft); width: 50px; flex-shrink: 0; }
-.hist-row .pat { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.hist-row .stats { color: var(--ink-soft); font-size: 10px; flex-shrink: 0; }
-.hist-empty { padding: 8px 12px; color: var(--ink-soft); }
+  /* options card */
+  .opt-row {
+    display: grid; grid-template-columns: 110px 1fr; gap: 10px;
+    align-items: start; padding: 6px 0;
+    border-bottom: 1px dashed var(--line);
+  }
+  .opt-row:last-child { border-bottom: none; }
+  .opt-row .opt-label {
+    font-size: 11px; color: var(--ink-soft);
+    text-transform: uppercase; letter-spacing: 0.5px;
+    padding-top: 6px;
+  }
+  .opt-row input[type=text] {
+    width: 100%; background: var(--bg); border: 1px solid var(--line);
+    border-radius: 3px; padding: 5px 8px;
+    font-family: var(--mono); font-size: 12px; color: var(--ink); outline: none;
+  }
+  .opt-row input[type=text]:focus {
+    border-color: var(--accent); box-shadow: 0 0 0 2px rgba(45,106,138,0.10);
+  }
+  .opt-hint {
+    grid-column: 2; font-size: 10px; color: var(--ink-soft);
+    margin-top: 4px;
+  }
+  .opt-hint code {
+    background: var(--bg); padding: 0 4px; border-radius: 2px;
+    color: var(--accent); font-family: var(--mono);
+  }
 
-#results-list { flex: 1; overflow-y: auto; padding: 8px; }
-.result-card {
-  background: var(--bg-card); border: 1px solid var(--line);
-  border-left: 3px solid var(--grey); padding: 6px 8px;
-  margin-bottom: 6px; font-size: 11px;
-}
-.result-card.ok { border-left-color: var(--green); }
-.result-card.partial { border-left-color: var(--amber); }
-.result-card.error { border-left-color: var(--red); }
-.result-card .head { display: flex; justify-content: space-between; margin-bottom: 4px; font-weight: 500; }
-.result-card .ctx { color: var(--ink-soft); white-space: pre-wrap; word-break: break-all; margin: 2px 0; }
-.field-row { display: flex; gap: 6px; padding: 1px 0; }
-.field-row .fname { width: 90px; flex-shrink: 0; color: var(--ink-soft); }
-.field-row .fval { flex: 1; word-break: break-all; }
-#empty-state { padding: 16px 12px; color: var(--ink-soft); font-size: 11px; }
+  .selection-summary .card-head {
+    display: flex; align-items: center; gap: 12px;
+  }
+  .selection-summary .help {
+    flex: 1; color: var(--ink); font-size: 11px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .selection-summary .help code {
+    background: var(--bg); padding: 1px 5px; border-radius: 2px;
+    color: var(--accent); font-family: var(--mono);
+  }
+  .selection-summary .help b { color: var(--ink); }
+  .card-edit {
+    background: transparent; border: 1px solid var(--line);
+    color: var(--ink-soft); font-family: var(--mono); font-size: 11px;
+    padding: 4px 10px; border-radius: 3px; cursor: pointer;
+  }
+  .card-edit:hover { border-color: var(--accent); color: var(--accent); }
 
-/* footer — passive keyboard hint strip */
-#footer {
-  flex-shrink: 0; padding: 4px 12px;
-  background: var(--bg-alt); border-top: 1px solid var(--line);
-  font-size: 10px; color: var(--ink-soft); text-align: right;
-  letter-spacing: 0.04em;
-}
-#footer kbd {
-  font-family: var(--mono); padding: 0 3px;
-  border: 1px solid var(--line); border-radius: 2px;
-  background: var(--bg); color: var(--ink); font-size: 9px;
-}
+  .ocr-view {
+    background: var(--bg-card); border: 1px solid var(--line);
+    border-radius: 5px; padding: 14px 16px; font-size: 12px;
+    margin-bottom: 22px;
+    height: var(--ocr-h, 220px); min-height: 80px; max-height: none;
+    overflow-y: auto; white-space: pre-wrap; line-height: 1.55;
+    position: relative;
+  }
+  .ocr-resize {
+    position: absolute; left: 0; right: 0; bottom: -8px; height: 12px;
+    cursor: row-resize; z-index: 5;
+    display: flex; justify-content: center; align-items: center;
+  }
+  .ocr-resize::before {
+    content: ''; width: 38px; height: 3px;
+    background: var(--line); border-radius: 2px; transition: background 0.1s;
+  }
+  .ocr-resize:hover::before, .ocr-resize.dragging::before { background: var(--accent); }
+  .ocr-view .ocr-head {
+    display: flex; justify-content: space-between; align-items: center;
+    color: var(--ink-soft); font-size: 10px;
+    text-transform: uppercase; letter-spacing: 0.6px;
+    margin-bottom: 8px; padding-bottom: 8px;
+    border-bottom: 1px dashed var(--line); position: sticky; top: 0;
+    background: var(--bg-card);
+  }
+  .ocr-view .ocr-head label { text-transform: none; cursor: pointer; }
+  .ocr-body { font-family: var(--mono); }
+  #pdf-frame { border: none; width: 100%; background: var(--bg); }
+  .ocr-view.pdf-mode {
+    padding: 0; overflow: hidden;
+    display: flex; flex-direction: column;
+  }
+  .ocr-view.pdf-mode .ocr-head {
+    padding: 8px 14px; margin: 0;
+    background: var(--bg-card);
+    flex: 0 0 auto;
+  }
+  .ocr-view.pdf-mode .ocr-body { display: none; }
+  .ocr-view.pdf-mode #pdf-frame {
+    display: block; flex: 1 1 0; min-height: 0; height: auto;
+  }
+  .ocr-view:not(.pdf-mode) #pdf-frame { display: none; }
+  .view-toggle {
+    display: inline-flex; border: 1px solid var(--line);
+    border-radius: 3px; overflow: hidden; height: 22px;
+  }
+  .view-toggle button {
+    background: transparent; border: none; color: var(--ink-soft);
+    font-family: var(--mono); font-size: 10px; cursor: pointer;
+    padding: 0 8px; text-transform: uppercase; letter-spacing: 0.6px;
+  }
+  .view-toggle button.active { background: var(--accent); color: #fff; }
+  .view-toggle button:not(.active):hover { color: var(--ink); }
+  .ocr-body mark {
+    background: rgba(45,106,138,0.18); color: var(--ink);
+    padding: 0 2px; border-radius: 2px;
+    border-bottom: 1.5px solid var(--accent);
+  }
+  .ocr-body mark.exclude {
+    background: rgba(181,57,57,0.18); border-bottom-color: var(--red);
+  }
+  .ws-glyph { color: var(--line); }
 
-/* command palette */
-#palette {
-  margin: 0; padding: 0; border: 1px solid var(--ink);
-  width: 480px; background: var(--bg);
-  position: fixed; top: 80px; left: 50%; transform: translateX(-50%);
-  font-family: var(--mono); box-shadow: 0 8px 32px rgba(0,0,0,0.2);
-}
-#palette::backdrop { background: rgba(0,0,0,0.3); }
-#palette-input {
-  width: 100%; border: none; border-bottom: 1px solid var(--line);
-  padding: 10px 14px; font-size: 13px; background: var(--bg);
-}
-#palette-input:focus { outline: none; }
-#palette-list { max-height: 320px; overflow-y: auto; }
-.palette-row {
-  padding: 6px 14px; cursor: pointer; font-size: 12px;
-}
-.palette-row:hover, .palette-row.active { background: var(--bg-alt); }
-.palette-row.create { color: var(--accent); border-top: 1px solid var(--line); }
-.palette-empty { padding: 12px 14px; color: var(--ink-soft); font-size: 11px; }
+  .card {
+    background: var(--bg-card); border: 1px solid var(--line);
+    border-radius: 5px; margin-bottom: 12px; overflow: hidden;
+  }
+  .card-head {
+    display: flex; align-items: center; padding: 8px 14px;
+    background: rgba(0,0,0,0.015); border-bottom: 1px solid var(--line); gap: 10px;
+  }
+  .card-head .label {
+    font-size: 10px; text-transform: uppercase; letter-spacing: 1px;
+    color: var(--ink-soft); font-weight: 600;
+  }
+  .card-head .label.match   { color: var(--accent); }
+  .card-head .label.exclude { color: var(--red); }
+  .card-head .label.fields  { color: var(--ink); }
+  .card-head .help { font-size: 11px; color: var(--ink-soft); flex: 1; }
+  .card-head .stats { font-size: 11px; color: var(--ink-soft); font-variant-numeric: tabular-nums; }
+  .card-head .stats b { color: var(--green); font-weight: 600; }
+  .card-head .stats b.warn { color: var(--amber); }
+  .card-head .stats b.err  { color: var(--red); }
 
-/* bootstrap modal */
-#bootstrap-modal {
-  position: fixed; inset: 0; z-index: 100;
-  display: flex; align-items: center; justify-content: center;
-}
-#bootstrap-modal[hidden] { display: none; }
-.backdrop { position: absolute; inset: 0; background: rgba(0,0,0,0.4); }
-.modal {
-  position: relative; background: var(--bg); border: 1px solid var(--ink);
-  padding: 16px 20px; width: 640px; max-height: 80vh; overflow-y: auto;
-  font-size: 12px; box-shadow: 0 8px 32px rgba(0,0,0,0.2);
-}
-.modal h2 {
-  font-size: 13px; text-transform: uppercase; letter-spacing: 0.06em;
-  font-family: var(--mono); border-bottom: 1px solid var(--line);
-  padding-bottom: 4px; margin-bottom: 12px;
-}
-.modal-section { margin: 12px 0; }
-.modal-section h3 {
-  font-size: 11px; font-family: var(--mono); text-transform: uppercase;
-  letter-spacing: 0.05em; color: var(--ink-soft); margin-bottom: 6px;
-}
-.modal-row { display: flex; align-items: center; gap: 6px; padding: 2px 0; font-size: 11px; }
-.modal-row label { display: flex; align-items: center; gap: 6px; cursor: pointer; flex: 1; }
-.modal-row .meta { color: var(--ink-soft); margin-left: auto; font-size: 10px; }
-.modal-actions {
-  display: flex; justify-content: flex-end; gap: 8px;
-  border-top: 1px solid var(--line); padding-top: 10px; margin-top: 12px;
-}
-.modal input[type=text] { width: 100%; }
+  .card-body { padding: 12px 14px; }
+
+  .regex-input {
+    width: 100%; background: var(--bg); border: 1px solid var(--line);
+    border-radius: 3px; padding: 8px 11px;
+    font-family: var(--mono); font-size: 13px; color: var(--ink);
+    outline: none; transition: border-color 0.1s, box-shadow 0.1s;
+  }
+  .regex-input:focus {
+    border-color: var(--accent); box-shadow: 0 0 0 2px rgba(45,106,138,0.12);
+  }
+  .regex-input.ok    { border-left: 3px solid var(--green); }
+  .regex-input.warn  { border-left: 3px solid var(--amber); }
+  .regex-input.err   { border-left: 3px solid var(--red); }
+
+  .preview-line {
+    margin-top: 6px; padding: 6px 10px; background: var(--bg);
+    border-radius: 3px; font-size: 11px; color: var(--ink-soft);
+    border: 1px dashed var(--line); min-height: 24px;
+    display: flex; align-items: center; gap: 8px; overflow: hidden;
+  }
+  .preview-line .preview-tag {
+    font-size: 9px; text-transform: uppercase; letter-spacing: 0.6px;
+    color: var(--ink-soft); flex-shrink: 0;
+  }
+  .preview-line .preview-text {
+    color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .preview-line .preview-text mark {
+    background: rgba(45,106,138,0.22); border-bottom: 1px solid var(--accent);
+    padding: 0 2px; border-radius: 2px;
+  }
+  .preview-line .preview-text mark.exclude {
+    background: rgba(181,57,57,0.22); border-bottom-color: var(--red);
+  }
+  .preview-line .preview-text mark.cap {
+    background: rgba(45,138,79,0.22); border-bottom-color: var(--green); font-weight: 600;
+  }
+  .preview-line { display: block; flex-direction: column; align-items: stretch; }
+  .match-preview-row {
+    display: block; padding: 2px 0; font-size: 11px;
+    color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .match-preview-row .match-preview-doc {
+    color: var(--ink-soft); font-size: 10px; margin-right: 6px;
+    font-variant-numeric: tabular-nums;
+  }
+  .match-preview-row mark {
+    background: rgba(45,106,138,0.22); border-bottom: 1px solid var(--accent);
+    padding: 0 2px; border-radius: 2px;
+  }
+  .match-preview-more {
+    font-size: 10px; color: var(--ink-soft);
+    text-align: right; padding-top: 4px; border-top: 1px dashed var(--line); margin-top: 4px;
+  }
+
+  .field-row {
+    display: grid;
+    grid-template-columns: 150px 76px 1fr 76px 160px 22px;
+    gap: 8px; align-items: start;
+    padding: 9px 0;
+    border-bottom: 1px dashed var(--line);
+    position: relative;
+  }
+  .field-row:last-child { border-bottom: none; }
+  .field-row .col { display: flex; flex-direction: column; gap: 4px; }
+  .field-row input[type=text],
+  .field-row select {
+    background: var(--bg); border: 1px solid var(--line);
+    border-radius: 3px; padding: 5px 7px;
+    font-family: var(--mono); font-size: 12px; color: var(--ink);
+    outline: none; width: 100%;
+  }
+  .field-row input[type=text]:focus,
+  .field-row select:focus {
+    border-color: var(--accent); box-shadow: 0 0 0 2px rgba(45,106,138,0.10);
+  }
+  .field-row input[type=text].ok    { border-left: 3px solid var(--green); }
+  .field-row input[type=text].warn  { border-left: 3px solid var(--amber); }
+  .field-row input[type=text].err   { border-left: 3px solid var(--red); }
+  .field-row textarea.adv-body {
+    width: 100%; background: var(--bg); border: 1px solid var(--line);
+    border-radius: 3px; padding: 6px 8px;
+    font-family: var(--mono); font-size: 11px; color: var(--ink);
+    outline: none; resize: vertical; min-height: 80px; line-height: 1.4;
+    white-space: pre; overflow-x: auto;
+  }
+  .field-row textarea.adv-body:focus {
+    border-color: var(--accent); box-shadow: 0 0 0 2px rgba(45,106,138,0.10);
+  }
+  .field-row .adv-snippet {
+    margin-top: 4px; align-self: flex-start;
+    background: transparent; border: 1px dashed var(--line);
+    border-radius: 3px; padding: 3px 8px;
+    font-family: var(--mono); font-size: 10px; color: var(--ink-soft);
+    cursor: pointer;
+  }
+  .field-row .adv-snippet:hover { border-color: var(--accent); color: var(--accent); }
+  .field-row .name-input { font-weight: 600; }
+  .field-row .name-input.reserved { color: var(--accent); }
+  .field-row .kind-toggle {
+    display: inline-flex; background: var(--bg); border: 1px solid var(--line);
+    border-radius: 3px; overflow: hidden; height: 26px;
+  }
+  .field-row .kind-toggle button {
+    flex: 1; background: transparent; border: none; color: var(--ink-soft);
+    font-family: var(--mono); font-size: 10px; cursor: pointer; padding: 0 4px;
+  }
+  .field-row .kind-toggle button.active { background: var(--accent); color: #fff; }
+  .field-row .row-stats {
+    font-size: 10px; color: var(--ink-soft);
+    margin-top: 2px; font-variant-numeric: tabular-nums; line-height: 1.3;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .field-row .row-stats b { color: var(--green); font-weight: 600; }
+  .field-row .row-stats b.warn { color: var(--amber); }
+  .field-row .row-stats b.err  { color: var(--red); }
+  .field-row .row-stats .sample {
+    color: var(--ink); background: rgba(45,138,79,0.10);
+    padding: 0 4px; border-radius: 2px; margin-left: 4px;
+  }
+  .field-row .delete-btn {
+    background: transparent; border: none; color: var(--ink-soft);
+    cursor: pointer; font-size: 14px; line-height: 22px;
+    height: 26px; width: 22px; border-radius: 3px;
+    opacity: 0; transition: opacity 0.1s;
+  }
+  .field-row:hover .delete-btn { opacity: 1; }
+  .field-row .delete-btn:hover { background: rgba(181,57,57,0.10); color: var(--red); }
+
+  /* paperless validation badge — shown in the row's name column */
+  .pf-badge {
+    font-size: 9px; padding: 1px 5px; border-radius: 2px;
+    font-variant-numeric: tabular-nums; white-space: nowrap;
+    text-transform: uppercase; letter-spacing: 0.4px;
+    align-self: flex-start; max-width: 100%;
+    overflow: hidden; text-overflow: ellipsis;
+  }
+  .pf-badge:empty { display: none; }
+  .pf-badge.muted    { color: var(--ink-soft); }
+  .pf-badge.match    { color: var(--green); background: rgba(45,138,79,0.10); }
+  .pf-badge.mismatch { color: var(--amber); background: rgba(176,123,30,0.10); }
+  .pf-badge.missing  { color: var(--ink-soft); background: rgba(0,0,0,0.04); }
+  .pf-badge.offline  { color: var(--ink-soft); }
+
+  .pill {
+    display: inline-block; padding: 1px 6px; border-radius: 9px;
+    font-size: 9px; text-transform: uppercase; letter-spacing: 0.6px;
+    background: rgba(45,106,138,0.10); color: var(--accent);
+    border: 1px solid rgba(45,106,138,0.25);
+  }
+  .pill.builtin { background: rgba(45,106,138,0.10); color: var(--accent); }
+  .pill.custom  { background: rgba(0,0,0,0.04); color: var(--ink-soft); border-color: var(--line); }
+
+  .add-field-row {
+    margin-top: 8px;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .add-field-row button {
+    background: transparent; border: 1px dashed var(--line);
+    border-radius: 3px; padding: 6px 10px;
+    font-family: var(--mono); font-size: 11px; color: var(--ink-soft);
+    cursor: pointer;
+  }
+  .add-field-row button:hover { border-color: var(--accent); color: var(--accent); }
+  .add-field-row .hint { color: var(--ink-soft); font-size: 10px; flex: 1; }
+
+  .required-row {
+    margin-top: 12px; padding-top: 10px;
+    border-top: 1px solid var(--line);
+    display: flex; align-items: center; gap: 8px;
+    font-size: 11px; color: var(--ink-soft); flex-wrap: wrap;
+  }
+  .required-row .req-tag {
+    background: rgba(176,123,30,0.12); color: var(--amber);
+    border: 1px solid rgba(176,123,30,0.3);
+    padding: 2px 7px; border-radius: 11px;
+    font-size: 10px; cursor: pointer; user-select: none;
+  }
+  .required-row .req-tag.off {
+    background: transparent; color: var(--ink-soft); border-color: var(--line);
+  }
+
+  .raw-toggle { margin-top: 18px; text-align: center; }
+  .raw-toggle button {
+    background: transparent; border: 1px solid var(--line); color: var(--ink-soft);
+    padding: 5px 14px; font-family: var(--mono); font-size: 11px;
+    border-radius: 3px; cursor: pointer;
+  }
+  .raw-toggle button:hover { color: var(--accent); border-color: var(--accent); }
+  .raw-yaml {
+    display: none; background: var(--bg-card); border: 1px solid var(--line);
+    border-radius: 5px; margin-top: 12px; padding: 14px 16px;
+    font-size: 12px; white-space: pre; overflow-x: auto; line-height: 1.5; color: var(--ink);
+  }
+  .raw-yaml.shown { display: block; }
+  .raw-yaml .k { color: var(--accent); }
+  .raw-yaml .s { color: var(--green); }
+  .raw-yaml .c { color: var(--ink-soft); font-style: italic; }
+
+  /* right pane */
+  .pane-right {
+    background: var(--bg-alt); border-left: 1px solid var(--line);
+    padding: 16px 14px;
+  }
+  .pane-right h2 {
+    font-family: var(--serif); font-size: 15px; font-weight: 600; margin: 0 0 4px 0;
+  }
+  .pane-right .sub { color: var(--ink-soft); font-size: 11px; margin-bottom: 14px; }
+
+  .outcome-card {
+    background: var(--bg-card); border: 1px solid var(--line);
+    border-radius: 5px; margin-bottom: 12px; overflow: hidden;
+  }
+  .outcome-card .oc-head {
+    padding: 8px 12px; background: rgba(0,0,0,0.015);
+    border-bottom: 1px solid var(--line);
+    display: flex; align-items: center; gap: 8px; font-size: 11px;
+  }
+  .outcome-card .oc-head .doc-name {
+    flex: 1; font-weight: 600; font-size: 11px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .outcome-card .oc-head .verdict {
+    font-size: 10px; text-transform: uppercase; letter-spacing: 0.8px;
+    padding: 1px 7px; border-radius: 9px; font-weight: 600;
+  }
+  .verdict.pass { background: rgba(45,138,79,0.12); color: var(--green); }
+  .verdict.skip { background: rgba(176,123,30,0.12); color: var(--amber); }
+  .verdict.fail { background: rgba(181,57,57,0.12); color: var(--red); }
+  .outcome-card .oc-body { padding: 8px 12px; font-size: 11px; }
+  .outcome-card .oc-row {
+    display: flex; padding: 3px 0; gap: 8px;
+    border-bottom: 1px dotted var(--line);
+  }
+  .outcome-card .oc-row:last-child { border-bottom: none; }
+  .outcome-card .oc-row .key {
+    color: var(--ink-soft); width: 95px; flex-shrink: 0;
+  }
+  .outcome-card .oc-row .val {
+    color: var(--ink); flex: 1;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .outcome-card .oc-row .val.miss { color: var(--red); font-style: italic; }
+  .outcome-card .oc-row .val.builtin { color: var(--accent); }
+  .outcome-card .oc-row .key::before {
+    content: ''; display: inline-block; width: 6px; height: 6px;
+    border-radius: 50%; background: var(--green);
+    margin-right: 6px; vertical-align: middle;
+  }
+  .outcome-card .oc-row.miss .key::before { background: var(--red); }
+  .outcome-card .oc-note {
+    margin-top: 6px; font-size: 10px; color: var(--ink-soft); font-style: italic;
+  }
+
+  /* command palette */
+  #palette {
+    margin: 0; padding: 0; border: 1px solid var(--ink);
+    width: 480px; background: var(--bg); position: fixed; top: 80px;
+    left: 50%; transform: translateX(-50%);
+    box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+  }
+  #palette::backdrop { background: rgba(0,0,0,0.3); }
+  #palette-input {
+    width: 100%; border: none; border-bottom: 1px solid var(--line);
+    padding: 10px 14px; font-size: 13px; background: var(--bg);
+    font-family: var(--mono);
+  }
+  #palette-input:focus { outline: none; }
+  #palette-list { max-height: 320px; overflow-y: auto; }
+  .palette-row { padding: 6px 14px; cursor: pointer; font-size: 12px; }
+  .palette-row:hover, .palette-row.active { background: var(--bg-alt); }
+  .palette-row.create { color: var(--accent); border-top: 1px solid var(--line); }
+  .palette-empty { padding: 12px 14px; color: var(--ink-soft); font-size: 11px; }
+
+  /* footer */
+  #footer {
+    flex-shrink: 0; padding: 4px 14px;
+    background: var(--bg-alt); border-top: 1px solid var(--line);
+    font-size: 10px; color: var(--ink-soft); text-align: right;
+    letter-spacing: 0.04em;
+  }
+  #footer kbd {
+    font-family: var(--mono); padding: 0 4px;
+    border: 1px solid var(--line); border-radius: 2px;
+    background: var(--bg); color: var(--ink); font-size: 9px;
+  }
+
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--line); border-radius: 4px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--ink-soft); }
 </style>
 </head>
 <body>
-<div id="topbar">
-  <div class="brand">paperless·rules</div>
-  <span id="active-rule">— no rule —</span>
-  <span class="dirty-dot" id="dirty-dot" title="unsaved changes"></span>
-  <div class="spacer"></div>
-  <span id="save-status" class="muted">—</span>
-  <span class="sep">|</span>
-  <span id="health-status"><span class="dot"></span>connecting…</span>
-</div>
 
-<div id="layout">
-  <aside id="pane-corpus">
-    <div class="section-header">rules</div>
-    <div id="rule-list"></div>
-    <button id="btn-new-rule" class="row-action">+ new rule</button>
+<div class="app">
+  <div class="topbar">
+    <span class="brand">paperless·rules</span>
+    <input type="text" class="filename" id="filename-input" placeholder="01_my_rule.yml">
+    <span class="dirty-dot" id="dirty-dot" title="unsaved changes"></span>
+    <span class="spacer"></span>
+    <span id="save-status">—</span>
+    <span class="muted" style="color:var(--line)">|</span>
+    <span id="health-pill"><span class="dot"></span>connecting…</span>
+    <button class="icon" id="btn-refresh-schema" title="re-fetch paperless schema (custom_fields)">↻</button>
+    <button id="btn-test" class="primary" title="test rule against the corpus">Test</button>
+  </div>
 
-    <div class="section-header">documents</div>
-    <div id="search-box-wrap"><input id="search-box" type="search" placeholder="search…"></div>
-    <div id="doc-list"></div>
-
-    <div id="presets-section">
-      <div class="section-header">presets</div>
-      <div id="presets-list"></div>
-    </div>
-  </aside>
-
-  <main id="pane-middle">
-    <section id="ocr-section">
-      <div class="toolbar">
-        <span id="ocr-title" class="grow muted">— select a document —</span>
-        <button id="btn-bootstrap" disabled title="bootstrap a starter rule from this document">bootstrap rule</button>
-        <span class="sep">|</span>
-        <label><input type="checkbox" id="show-whitespace"> whitespace</label>
+  <div class="workspace" id="workspace">
+    <aside class="pane-left">
+      <div class="pane-section">
+        <span>rules</span>
+        <button class="inline" id="btn-new-rule" title="new rule (⌘N)">+ new</button>
       </div>
-      <pre id="ocr-content"></pre>
-    </section>
+      <div id="rule-list"></div>
 
-    <div class="splitter" id="splitter-ocr" title="drag to resize"></div>
+      <div class="pane-section">documents</div>
+      <div id="search-box-wrap"><input id="search-box" type="search" placeholder="search…"></div>
+      <div id="doc-list"></div>
+    </aside>
 
-    <div id="lower-stack">
-    <section id="regex-tester">
-      <div class="pattern-row">
-        <span class="slash">/</span>
-        <input id="pattern" type="text" placeholder="type a regex…" spellcheck="false">
-        <span class="slash">/</span>
-        <span class="muted">m</span>
-        <button id="hist-btn">▼ hist</button>
-      </div>
-      <div class="controls-row">
-        flags
-        <label><input type="checkbox" id="flag-i"> i</label>
-        <label><input type="checkbox" id="flag-s"> s</label>
-        <label><input type="checkbox" id="flag-x"> x</label>
-        <span class="sep">|</span>
-        field <select id="field-select"></select>
-        <span class="sep">|</span>
-        type
-        <select id="type-select">
-          <option value="str">str</option>
-          <option value="float">float</option>
-          <option value="date">date</option>
-        </select>
-      </div>
-      <div class="stats-row"><span id="corpus-stats" class="muted">— no pattern —</span></div>
-      <div id="groups"></div>
-      <div class="actions">
-        <button id="btn-apply">apply to field</button>
-        <button id="btn-run-rule" class="primary">run full rule</button>
-      </div>
-    </section>
+    <div class="gutter" data-gutter="left"></div>
 
-    <section id="yaml-section" class="collapsed">
-      <div class="toolbar">
-        <button id="yaml-toggle">▶ yaml</button>
-        <input type="text" id="filename-input" placeholder="01_rule.yml">
-        <span class="sep">|</span>
-        <select id="snippet-select" title="insert a transform snippet at the cursor">
-          <option value="">+ transform ▼</option>
-          <option value="default">default — fallback when no match</option>
-          <option value="match">match — multi-arm enumeration</option>
-          <option value="pick">pick — first/last/Nth match</option>
-          <option value="map">map — lookup table</option>
-          <option value="aggregate">aggregate — sum/count/min/max</option>
-          <option value="value">value — constant on match</option>
-          <option value="combine">combine — concat captures</option>
-        </select>
-        <span class="sep">|</span>
-        <span id="yaml-status" class="muted">—</span>
-        <span class="sep">|</span>
-        <span id="line-count" class="muted">0 lines</span>
+    <main class="pane-middle" id="pane-middle">
+      <div class="pane-header">
+        <h1 id="rule-name">— no rule —</h1>
+        <span class="sub" id="rule-sub"></span>
       </div>
-      <textarea id="yaml-editor" spellcheck="false" wrap="off"></textarea>
-    </section>
-    </div>
-  </main>
 
-  <aside id="pane-results">
-    <div class="toolbar">
-      <span id="results-title" class="grow">PATTERN MATCHES</span>
-      <button id="btn-clear-corpus">clear</button>
-    </div>
-    <div id="results-list"><div id="empty-state">type a pattern to begin</div></div>
-  </aside>
+      <div class="stepper" id="stepper">
+        <button class="step active" data-step="1" type="button">
+          <span class="num">1</span>
+          <span class="title">Selection</span>
+          <span class="desc" id="step1-desc">match &amp; exclude</span>
+        </button>
+        <span class="step-arrow">→</span>
+        <button class="step" data-step="2" type="button">
+          <span class="num">2</span>
+          <span class="title">Extraction</span>
+          <span class="desc" id="step2-desc">define fields</span>
+        </button>
+      </div>
+
+      <div class="step-banner" id="step1-banner">
+        <b>Step 1 — Selection.</b> Refine the match and exclude regexes until the right docs land in the corpus. The left pane shows what paperless returned; the right pane shows pass/skip per doc.
+      </div>
+      <div class="step-banner" id="step2-banner" hidden>
+        <b>Step 2 — Extraction.</b> Define the fields to pull from each matching doc. The corpus is fixed by your selection above.
+      </div>
+
+      <!-- compact selection summary shown in step 2 -->
+      <div class="card selection-summary" id="selection-summary" hidden>
+        <div class="card-head">
+          <span class="label match">SELECTION</span>
+          <span class="help" id="selection-summary-text">…</span>
+          <button class="card-edit" id="btn-edit-selection" type="button">edit selection</button>
+        </div>
+      </div>
+
+      <div class="ocr-view" id="ocr-view">
+        <div class="ocr-head">
+          <span id="ocr-doc-name">— select a document —</span>
+          <span style="display:flex; gap:6px; align-items:center;">
+            <span class="view-toggle" role="tablist">
+              <button class="view-tab active" data-view="ocr" type="button">OCR text</button>
+              <button class="view-tab"        data-view="pdf" type="button">PDF</button>
+            </span>
+            <label><input type="checkbox" id="show-whitespace"> whitespace</label>
+          </span>
+        </div>
+        <div class="ocr-body" id="ocr-body"></div>
+        <iframe id="pdf-frame" title="document PDF"></iframe>
+        <div class="ocr-resize" id="ocr-resize" title="drag to resize"></div>
+      </div>
+
+      <div class="card step1-only" id="card-match">
+        <div class="card-head">
+          <span class="label match">MATCH</span>
+          <span class="help">Document text must match this pattern (multiline + dotall).</span>
+          <span class="stats" id="match-stats">— —</span>
+        </div>
+        <div class="card-body">
+          <input class="regex-input" id="match-input" placeholder="e.g. Acme Télécom.*?Facture mensuelle"
+                 spellcheck="false" autocomplete="off">
+          <div class="preview-line" id="match-preview">
+            <span class="preview-tag">match in active doc:</span>
+            <span class="preview-text"></span>
+          </div>
+        </div>
+      </div>
+
+      <div class="card step1-only" id="card-exclude">
+        <div class="card-head">
+          <span class="label exclude">EXCLUDE</span>
+          <span class="help">Skip the document if this pattern matches (optional).</span>
+          <span class="stats" id="exclude-stats">— —</span>
+        </div>
+        <div class="card-body">
+          <input class="regex-input" id="exclude-input" placeholder="e.g. DRAFT|Quote"
+                 spellcheck="false" autocomplete="off">
+          <div class="preview-line" id="exclude-preview">
+            <span class="preview-tag">match in active doc:</span>
+            <span class="preview-text"></span>
+          </div>
+        </div>
+      </div>
+
+      <div class="card" id="card-fields">
+        <div class="card-head">
+          <span class="label fields">FIELDS</span>
+          <span class="help">Extract values. Reserved names (correspondent / document_type / tags / title) write to paperless built-ins; everything else becomes a custom field.</span>
+          <span class="stats" id="fields-stats">0 fields</span>
+        </div>
+        <div class="card-body">
+          <div id="field-rows"></div>
+          <div class="add-field-row">
+            <button id="btn-add-field">+ add field</button>
+            <span class="hint">name a built-in (correspondent, document_type, tags, title) or anything else for a custom field</span>
+          </div>
+          <div class="required-row" id="required-row">
+            <span>required:</span>
+            <span id="required-tags"></span>
+          </div>
+        </div>
+      </div>
+
+      <div class="card step2-only" id="card-options">
+        <div class="card-head">
+          <span class="label">OPTIONS</span>
+          <span class="help">parsing knobs used during extraction (date formats, currency hint, languages).</span>
+        </div>
+        <div class="card-body">
+          <div class="opt-row">
+            <label class="opt-label">date_formats</label>
+            <input type="text" id="opt-date-formats" spellcheck="false"
+                   placeholder="%d.%m.%Y, %d-%b-%Y, %Y-%m-%d">
+            <div class="opt-hint">
+              comma-separated <code>strptime</code> patterns used for <code>type: date</code> fields.
+              cheatsheet: <code>%d</code>=day · <code>%m</code>=month-num · <code>%b</code>=Jan/Feb/… ·
+              <code>%B</code>=January/… · <code>%Y</code>=2026 · <code>%y</code>=26.
+              try <code>%d-%b-%Y</code> for <i>23-Apr-2026</i>.
+            </div>
+          </div>
+          <div class="opt-row">
+            <label class="opt-label">currency</label>
+            <input type="text" id="opt-currency" spellcheck="false"
+                   placeholder="EUR" style="max-width: 120px">
+          </div>
+          <div class="opt-row">
+            <label class="opt-label">languages</label>
+            <input type="text" id="opt-languages" spellcheck="false"
+                   placeholder="fr, de, en">
+            <div class="opt-hint">comma-separated locale hints (extension point — not used by core extraction yet).</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="raw-toggle">
+        <button id="btn-yaml-toggle">show raw YAML</button>
+      </div>
+      <pre class="raw-yaml" id="raw-yaml"></pre>
+    </main>
+
+    <div class="gutter" data-gutter="right"></div>
+
+    <aside class="pane-right">
+      <h2>Extraction outcome</h2>
+      <div class="sub">What this rule writes to paperless, per document in the corpus.</div>
+      <div id="outcome-cards">
+        <div class="empty">add documents to the corpus (left pane) and the outcome shows here</div>
+      </div>
+    </aside>
+  </div>
 </div>
 
 <div id="footer">
@@ -394,20 +852,14 @@ input:focus, textarea:focus, select:focus { outline: none; border-color: var(--i
   <div id="palette-list"></div>
 </dialog>
 
-<div id="bootstrap-modal" hidden>
-  <div class="backdrop"></div>
-  <div class="modal">
-    <h2>BOOTSTRAP RULE FROM DOCUMENT</h2>
-    <div id="bootstrap-body"></div>
-    <div class="modal-actions">
-      <button id="btn-bs-cancel">cancel</button>
-      <button id="btn-bs-generate" class="primary">generate rule</button>
-    </div>
-  </div>
-</div>
+<!-- shared datalist of valid field names: 4 reserved built-ins + every
+     paperless custom_field. Field-row name inputs use list="field-names". -->
+<datalist id="field-names"></datalist>
 
 <script>
 "use strict";
+
+// ── helpers ─────────────────────────────────────────────────────────
 
 const $ = s => document.querySelector(s);
 const esc = s => String(s).replace(/[&<>]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;"})[c]);
@@ -415,94 +867,385 @@ const escAttr = s => String(s).replace(/["&<>]/g, c => ({'"':"&quot;","&":"&amp;
 const debounce = (fn, ms) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; };
 const shortTime = iso => new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 
+function safeRe(pat, flags) {
+  try { return new RegExp(pat, flags); } catch { return null; }
+}
+
+// ── constants ───────────────────────────────────────────────────────
+
+const RESERVED_BUILTINS = new Set(["correspondent", "document_type", "tags", "title"]);
+
+// rule type → set of paperless data_types that count as compatible
+// (matches what runtime/apply.py:_TYPE_MAP writes today)
+const TYPE_ACCEPT = {
+  str:   new Set(["string", "url", "select"]),
+  float: new Set(["float", "monetary"]),
+  date:  new Set(["date"]),
+  int:   new Set(["integer"]),
+  bool:  new Set(["boolean"]),
+};
+
+const KIND_LABELS = { regex: "re", value: "val", template: "tpl", advanced: "adv" };
+const KIND_ORDER  = ["regex", "value", "template", "advanced"];
+const TYPE_OPTIONS = ["str", "float", "date", "int", "bool"];
+
+// snippets the user can paste into an advanced field body to compose
+// the engine's transforms (default/match/pick/map/aggregate/combine/internal).
+const FIELD_SNIPPETS = {
+  "regex":     "regex: 'PATTERN (capture)'\ntype: str\n",
+  "value":     "value: 'literal value'\n",
+  "template":  "template: '{date} {invoice_number}'\ntype: str\n",
+  "default":   "default: 'fallback when no match'\n",
+  "pick":      "pick: last        # first | last | 0 | 1 | -1\n",
+  "map":       "map:\n  KEY_A: 'mapped value A'\n  KEY_B: 'mapped value B'\n",
+  "aggregate": "aggregate: sum    # sum | count | min | max\n",
+  "combine":   "combine: ' '      # separator joining captures\n",
+  "internal":  "internal: true    # scratch: not written to paperless\n",
+  "match":     "match:\n  - { regex: 'PATTERN_A', value: alpha }\n  - { regex: 'PATTERN_B', value: beta }\n",
+};
+const SNIPPET_LABELS = {
+  "regex":     "regex (single)",
+  "value":     "value (literal)",
+  "template":  "template",
+  "default":   "default — fallback when no match",
+  "pick":      "pick — first/last/Nth match",
+  "map":       "map — lookup table",
+  "aggregate": "aggregate — sum/count/min/max",
+  "combine":   "combine — concat captures",
+  "internal":  "internal — scratch field",
+  "match":     "match — multi-arm enumeration",
+};
+
+function synthesizeAdvancedYaml(f) {
+  if (f.kind === "regex") {
+    return `regex: ${yqStr(f.body || "")}\ntype: ${f.type || "str"}\n`;
+  }
+  if (f.kind === "value") {
+    return `value: ${yqStr(f.body || "")}\n`;
+  }
+  if (f.kind === "template") {
+    let out = `template: ${yqStr(f.body || "")}\n`;
+    if (f.type && f.type !== "str") out += `type: ${f.type}\n`;
+    return out;
+  }
+  return "";
+}
+
+// ── state ───────────────────────────────────────────────────────────
+
+const state = {
+  rules: [],                  // [{filename, ...}]
+  currentFilename: "",
+  dirty: false,
+  rule: emptyRule(),
+
+  // The corpus = whatever is in state.docs. When a `match:` regex is set,
+  // these come from /api/discover (paperless docs whose content matches).
+  // When `match:` is empty, they come from /api/documents (search results).
+  docs: [],                   // [{id, title, snippet?, match_start?, match_end?}]
+  docsSource: "search",       // "search" | "discover"
+  docsScanned: 0,
+  docsTruncated: false,
+  docsPrefilter: "",
+  docsPrefilterAuto: false,
+  activeDocId: null,
+  activeDocText: "",
+  activeDocTitle: "",
+  showWhitespace: false,
+  ocrViewMode: "ocr",         // "ocr" | "pdf"
+  step: 1,                    // 1 = Selection (match+exclude); 2 = Extraction (fields)
+
+  // server-side full-rule extraction across the corpus
+  extraction: null,           // {results: [{doc_id, title, extraction: {...}}]}
+
+  // paperless custom_fields cache
+  paperlessFields: null,
+  paperlessSchemaState: "loading",  // loading | ready | offline
+};
+
+function emptyRule() {
+  return {
+    match: "",
+    exclude: "",
+    fields: [],               // [{name, kind, body, type}]
+    required: [],
+    options: { currency: "EUR", date_formats: ["%d.%m.%Y"], languages: ["fr"] },
+    extras: {},               // unrecognized top-level keys; preserved on save
+    extraFieldYaml: {},       // fieldName → raw YAML body for advanced kinds
+  };
+}
+
+// ── api ─────────────────────────────────────────────────────────────
+
 const api = {
-  json: async (p, opts = {}) => {
+  async json(p, opts = {}) {
     const r = await fetch(p, { headers: { "Content-Type": "application/json" }, ...opts });
     const d = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(d.detail || `HTTP ${r.status}`);
     return d;
   },
-  health:     ()        => api.json("/api/health"),
-  listDocs:   (q="")    => api.json(`/api/documents?query=${encodeURIComponent(q)}`),
-  getDocText: id        => api.json(`/api/documents/${id}/text`),
-  listRules:  ()        => api.json("/api/rules"),
-  getRule:    f         => api.json(`/api/rules/${encodeURIComponent(f)}`),
-  saveRule:   (f, y)    => api.json("/api/rules", { method: "POST", body: JSON.stringify({ filename: f, yaml: y }) }),
-  deleteRule: f         => api.json(`/api/rules/${encodeURIComponent(f)}`, { method: "DELETE" }),
-  testRegex:  body      => api.json("/api/regex/test", { method: "POST", body: JSON.stringify(body) }),
-  testRule:   (y, ids)  => api.json("/api/test", { method: "POST", body: JSON.stringify({ yaml: y, doc_ids: ids }) }),
-  bootstrap:  doc_id    => api.json("/api/bootstrap", { method: "POST", body: JSON.stringify({ doc_id }) }),
+  health:           ()        => api.json("/api/health"),
+  listDocs:         (q="")    => api.json(`/api/documents?query=${encodeURIComponent(q)}`),
+  getDocText:       id        => api.json(`/api/documents/${id}/text`),
+  listRules:        ()        => api.json("/api/rules"),
+  getRule:          f         => api.json(`/api/rules/${encodeURIComponent(f)}`),
+  saveRule:         (f, y)    => api.json("/api/rules", { method: "POST", body: JSON.stringify({ filename: f, yaml: y }) }),
+  deleteRule:       f         => api.json(`/api/rules/${encodeURIComponent(f)}`, { method: "DELETE" }),
+  testRule:         (y, ids)  => api.json("/api/test", { method: "POST", body: JSON.stringify({ yaml: y, doc_ids: ids }) }),
+  listCustomFields: ()        => api.json("/api/custom_fields"),
+  discover:         body      => api.json("/api/discover", { method: "POST", body: JSON.stringify(body) }),
 };
 
-const state = {
-  docs: [], corpus: new Set(), activeDocId: null, activeDocText: "", activeDocTitle: "",
-  showWhitespace: false,
-  rules: [], currentFilename: "", dirty: false,
-  pattern: "", flags: "", field: "amount", type: "float",
-  resultsMode: "pattern", patternResults: null, extractionResults: null,
-  bootstrapSuggestion: null,
-};
-
-const PRESETS = [
-  ["currency amount", String.raw`(?:CHF|EUR|USD|GBP)\s*([\d'.,]+)`],
-  ["DD.MM.YYYY", String.raw`(\d{1,2}\.\d{1,2}\.\d{4})`],
-  ["ISO date", String.raw`(\d{4}-\d{1,2}-\d{1,2})`],
-  ["IBAN", String.raw`([A-Z]{2}\d{2}(?:\s?[A-Z0-9]){11,30})`],
-  ["reference no.", String.raw`(?:Nr\.?|No\.?|Numéro|Référence)\s*([A-Z0-9-]{3,})`],
-  ["email", String.raw`([\w.+-]+@[\w.-]+\.[A-Za-z]{2,})`],
-];
-
-const SNIPPETS = {
-  default: `    default: 'fallback value'\n`,
-  match:
-    `    match:\n` +
-    `      - { regex: 'PATTERN_A', value: alpha }\n` +
-    `      - { regex: 'PATTERN_B', value: beta }\n`,
-  pick: `    pick: last        # first | last | 0 | 1 | -1\n`,
-  map:
-    `    map:\n` +
-    `      KEY_A: 'mapped value A'\n` +
-    `      KEY_B: 'mapped value B'\n`,
-  aggregate: `    aggregate: sum   # sum | count | min | max\n`,
-  value: `    value: 'constant when regex matches'\n`,
-  combine: `    combine: ' '       # separator joining captures from each pattern\n`,
-};
-
-function insertAtCursor(textarea, text) {
-  const start = textarea.selectionStart;
-  const end = textarea.selectionEnd;
-  textarea.value = textarea.value.slice(0, start) + text + textarea.value.slice(end);
-  textarea.focus();
-  textarea.selectionStart = textarea.selectionEnd = start + text.length;
+function corpusIds() {
+  return state.docs.map(d => d.id);
 }
 
-// regex history per (rule, field), localStorage, FIFO 10
-const HKEY = (f, fld) => `paperless-rules:regex-history:${f || "_unsaved"}:${fld || "_default"}`;
-function getHistory(f, fld) {
-  try { return JSON.parse(localStorage.getItem(HKEY(f, fld)) || "[]"); }
-  catch { return []; }
+// ── YAML round-trip (minimal, schema-specific) ──────────────────────
+// Handles our schema: match/exclude scalars, fields nested map with
+// regex|value|template + optional type, required list, options nested.
+// Anything fancier in `fields:` (default, match-multi, pick, map, aggregate,
+// combine, internal) is preserved verbatim as the field's `extraFieldYaml`
+// and the row is rendered as kind="advanced".
+
+function unquote(s) {
+  s = s.trim();
+  if (s.length >= 2 && s.startsWith("'") && s.endsWith("'")) {
+    return s.slice(1, -1).replace(/''/g, "'");
+  }
+  if (s.length >= 2 && s.startsWith('"') && s.endsWith('"')) {
+    return s.slice(1, -1).replace(/\\"/g, '"').replace(/\\\\/g, "\\").replace(/\\n/g, "\n").replace(/\\t/g, "\t");
+  }
+  return s;
 }
-function addHistory(f, fld, entry) {
-  if (!entry.pattern) return;
-  let list = getHistory(f, fld).filter(e => !(e.pattern === entry.pattern && e.flags === entry.flags));
-  list.unshift(entry);
-  localStorage.setItem(HKEY(f, fld), JSON.stringify(list.slice(0, 10)));
+
+function yqStr(s) {
+  // single-quoted YAML scalar; escape internal single quotes by doubling
+  s = String(s == null ? "" : s);
+  return "'" + s.replace(/'/g, "''") + "'";
 }
+
+function yqList(items) {
+  return "[" + items.map(x => /^[A-Za-z_][A-Za-z0-9_]*$/.test(x) ? x : yqStr(x)).join(", ") + "]";
+}
+
+function indentOf(line) {
+  const m = line.match(/^( *)/);
+  return m ? m[1].length : 0;
+}
+
+function parseRule(yamlText) {
+  const r = emptyRule();
+  if (!yamlText || !yamlText.trim()) return r;
+  const lines = yamlText.split("\n");
+
+  // Find top-level (indent 0) keys and their bodies
+  const sections = [];
+  let cur = null;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (/^\s*$/.test(line) || /^\s*#/.test(line)) {
+      if (cur) cur.body.push(line);
+      continue;
+    }
+    if (indentOf(line) === 0) {
+      const m = line.match(/^([A-Za-z_][A-Za-z0-9_]*)\s*:\s*(.*)$/);
+      if (m) {
+        cur = { key: m[1], inline: m[2], body: [] };
+        sections.push(cur);
+        continue;
+      }
+    }
+    if (cur) cur.body.push(line);
+  }
+
+  for (const sec of sections) {
+    if (sec.key === "match")        r.match   = unquote(sec.inline);
+    else if (sec.key === "exclude") r.exclude = unquote(sec.inline);
+    else if (sec.key === "fields")  parseFieldsBlock(sec.body, r);
+    else if (sec.key === "required") r.required = parseInlineList(sec.inline) || parseBlockList(sec.body);
+    else if (sec.key === "options") parseOptionsBlock(sec.body, r);
+    else r.extras[sec.key] = (sec.inline ? sec.inline : "") + (sec.body.length ? "\n" + sec.body.join("\n") : "");
+  }
+  return r;
+}
+
+function parseInlineList(inline) {
+  inline = (inline || "").trim();
+  if (!inline.startsWith("[")) return null;
+  const m = inline.match(/^\[(.*)\]$/);
+  if (!m) return [];
+  return m[1].split(",").map(s => unquote(s.trim())).filter(Boolean);
+}
+function parseBlockList(body) {
+  return body
+    .filter(l => /^\s*-\s+/.test(l))
+    .map(l => unquote(l.replace(/^\s*-\s+/, "")));
+}
+
+function parseFieldsBlock(body, r) {
+  // children at indent 2; sub-blocks at indent 4
+  let i = 0;
+  while (i < body.length) {
+    const line = body[i];
+    if (/^\s*$/.test(line) || /^\s*#/.test(line)) { i++; continue; }
+    if (indentOf(line) !== 2) { i++; continue; }
+    const m = line.match(/^  ([A-Za-z_][A-Za-z0-9_ ]*?)\s*:\s*(.*)$/);
+    if (!m) { i++; continue; }
+    const name = m[1].trim();
+    const inlineSpec = m[2];
+
+    // collect sub-block (indent >= 4) until next indent-2 key or end
+    const sub = [];
+    let j = i + 1;
+    while (j < body.length) {
+      const l = body[j];
+      if (/^\s*$/.test(l)) { sub.push(l); j++; continue; }
+      const ind = indentOf(l);
+      if (ind <= 2) break;
+      sub.push(l);
+      j++;
+    }
+
+    // Try simple shapes:
+    //   regex: 'pat'  + optional type:
+    //   value: 'lit'
+    //   template: 'tmpl' + optional type:
+    let kind = null, body_ = "", type = "str";
+    let advancedYaml = "";
+    if (inlineSpec) {
+      // shouldn't happen for fields — names always followed by block
+    }
+    let recognized = true;
+    let kindCount = 0;
+    for (const l of sub) {
+      const t = l.trim();
+      if (!t || t.startsWith("#")) continue;
+      const km = t.match(/^(regex|value|template|type)\s*:\s*(.*)$/);
+      if (!km) { recognized = false; break; }
+      const k = km[1], v = km[2];
+      if (k === "type") {
+        type = unquote(v) || "str";
+      } else {
+        if (kindCount > 0) { recognized = false; break; }
+        kind = k;
+        body_ = unquote(v);
+        kindCount++;
+      }
+    }
+
+    if (!recognized || kind === null) {
+      // advanced: keep the original sub-block verbatim
+      kind = "advanced";
+      body_ = "";
+      type = "str";
+      advancedYaml = sub.join("\n");
+    }
+
+    r.fields.push({ name, kind, body: body_, type });
+    if (advancedYaml) r.extraFieldYaml[name] = advancedYaml;
+    i = j;
+  }
+}
+
+function parseOptionsBlock(body, r) {
+  const opts = {};
+  let i = 0;
+  while (i < body.length) {
+    const line = body[i];
+    if (/^\s*$/.test(line) || /^\s*#/.test(line)) { i++; continue; }
+    if (indentOf(line) !== 2) { i++; continue; }
+    const m = line.match(/^  ([A-Za-z_][A-Za-z0-9_]*)\s*:\s*(.*)$/);
+    if (!m) { i++; continue; }
+    const k = m[1], inline = m[2];
+    if (inline) {
+      const list = parseInlineList(inline);
+      opts[k] = list !== null ? list : unquote(inline);
+      i++;
+    } else {
+      // block list: subsequent `- ` lines
+      const blk = [];
+      let j = i + 1;
+      while (j < body.length && (/^\s*$/.test(body[j]) || /^\s+-\s+/.test(body[j]))) { blk.push(body[j]); j++; }
+      opts[k] = blk.filter(l => /^\s*-\s+/.test(l)).map(l => unquote(l.replace(/^\s*-\s+/, "")));
+      i = j;
+    }
+  }
+  if ("currency"     in opts) r.options.currency     = opts.currency;
+  if ("date_formats" in opts) r.options.date_formats = Array.isArray(opts.date_formats) ? opts.date_formats : [opts.date_formats];
+  if ("languages"    in opts) r.options.languages    = Array.isArray(opts.languages) ? opts.languages : [opts.languages];
+}
+
+function serializeRule(r) {
+  const out = [];
+  out.push(`match: ${yqStr(r.match || "")}`);
+  if (r.exclude) out.push(`exclude: ${yqStr(r.exclude)}`);
+  else           out.push(`exclude: ''`);
+  out.push("fields:");
+  if (r.fields.length === 0) {
+    out[out.length - 1] = "fields: {}";
+  } else {
+    for (const f of r.fields) {
+      const safeName = /^[A-Za-z_][A-Za-z0-9_ ]*$/.test(f.name) ? f.name : yqStr(f.name);
+      if (f.kind === "advanced" && r.extraFieldYaml[f.name]) {
+        out.push(`  ${safeName}:`);
+        out.push(r.extraFieldYaml[f.name].replace(/\s+$/, ""));
+        continue;
+      }
+      out.push(`  ${safeName}:`);
+      if (f.kind === "regex") {
+        out.push(`    regex: ${yqStr(f.body || "")}`);
+        out.push(`    type: ${f.type || "str"}`);
+      } else if (f.kind === "value") {
+        out.push(`    value: ${yqStr(f.body || "")}`);
+      } else if (f.kind === "template") {
+        out.push(`    template: ${yqStr(f.body || "")}`);
+        if (f.type && f.type !== "str") out.push(`    type: ${f.type}`);
+      }
+    }
+  }
+  if (r.required && r.required.length) out.push(`required: ${yqList(r.required)}`);
+  if (r.options) {
+    out.push("options:");
+    if (r.options.currency)     out.push(`  currency: ${r.options.currency}`);
+    if (r.options.date_formats && r.options.date_formats.length) {
+      out.push("  date_formats:");
+      for (const fmt of r.options.date_formats) out.push(`    - ${yqStr(fmt)}`);
+    }
+    if (r.options.languages && r.options.languages.length) {
+      out.push("  languages:");
+      for (const lang of r.options.languages) out.push(`    - ${lang}`);
+    }
+  }
+  // Preserve extras (top-level keys we didn't model)
+  for (const [k, v] of Object.entries(r.extras || {})) {
+    out.push(`${k}: ${v}`.trim());
+  }
+  return out.join("\n") + "\n";
+}
+
+// ── rendering ───────────────────────────────────────────────────────
+
+function escapeOcr(s) { return esc(s); }
 
 function renderTextWithMatches(text, matches, showWS) {
+  // matches: [{start, end, klass}]
   const sorted = (matches || []).slice().sort((a, b) => a.start - b.start);
-  let out = "", mi = 0, inMark = false;
+  let out = "", mi = 0, inMark = false, currentKlass = "";
   for (let i = 0; i < text.length; i++) {
     while (mi < sorted.length && i >= sorted[mi].end) {
       if (inMark) { out += "</mark>"; inMark = false; }
       mi++;
     }
-    if (mi < sorted.length && i >= sorted[mi].start && !inMark) { out += "<mark>"; inMark = true; }
+    if (mi < sorted.length && i >= sorted[mi].start && !inMark) {
+      currentKlass = sorted[mi].klass || "";
+      out += `<mark class="${currentKlass}">`;
+      inMark = true;
+    }
     const ch = text[i];
-    if (ch === "&") out += "&amp;";
+    if      (ch === "&") out += "&amp;";
     else if (ch === "<") out += "&lt;";
     else if (ch === ">") out += "&gt;";
-    else if (showWS && ch === " ") out += '<span class="ws-glyph">·</span>';
+    else if (showWS && ch === " ")  out += '<span class="ws-glyph">·</span>';
     else if (showWS && ch === "\t") out += '<span class="ws-glyph">→</span>\t';
     else if (showWS && ch === "\n") out += '<span class="ws-glyph">¶</span>\n';
     else out += ch;
@@ -511,529 +1254,1012 @@ function renderTextWithMatches(text, matches, showWS) {
   return out;
 }
 
+function findMatches(text, pat, klass) {
+  if (!pat || !text) return [];
+  const re = safeRe(pat, "gms");
+  if (!re) return [];
+  const out = [];
+  let m, guard = 0;
+  while ((m = re.exec(text)) && guard++ < 5000) {
+    if (m.index === re.lastIndex) re.lastIndex++;
+    out.push({ start: m.index, end: m.index + m[0].length, klass });
+  }
+  return out;
+}
+
 function renderHealth(s) {
-  const el = $("#health-status");
+  const el = $("#health-pill");
+  el.classList.remove("ok", "error");
   if (s.paperless && s.paperless.ok) {
-    el.innerHTML = '<span class="dot ok"></span>paperless: connected';
+    el.classList.add("ok");
+    el.innerHTML = '<span class="dot"></span>paperless: connected';
   } else {
-    el.innerHTML = '<span class="dot error"></span>paperless: ' + esc((s.paperless && s.paperless.error) || "down");
+    el.classList.add("error");
+    el.innerHTML = '<span class="dot"></span>paperless: ' + esc((s.paperless && s.paperless.error) || "down");
   }
 }
 
-function renderActiveRule() {
-  const el = $("#active-rule");
-  if (state.currentFilename) {
-    el.textContent = state.currentFilename;
-    el.classList.add("has-rule");
-  } else {
-    el.textContent = "— no rule —";
-    el.classList.remove("has-rule");
-  }
+function renderTopbar() {
+  $("#filename-input").value = state.currentFilename;
   $("#dirty-dot").classList.toggle("dirty", state.dirty);
 }
 
 function setSaveStatus(cls, text) {
   const el = $("#save-status");
-  el.className = cls || "muted";
+  el.className = cls || "";
   el.textContent = text;
 }
 
 function renderRuleList() {
   const el = $("#rule-list");
   if (!state.rules.length) {
-    el.innerHTML = '<div class="muted" style="padding:6px 12px;font-size:11px">no rules yet</div>';
+    el.innerHTML = '<div class="empty">no rules yet</div>';
     return;
   }
   el.innerHTML = state.rules.map(r => `
-    <div class="rule-item ${r.filename === state.currentFilename ? "active" : ""}" data-filename="${escAttr(r.filename)}" title="${escAttr(r.filename)}">
+    <div class="rule-item ${r.filename === state.currentFilename ? "active" : ""}"
+         data-filename="${escAttr(r.filename)}" title="${escAttr(r.filename)}">
+      <span class="dot"></span>
       <span class="name">${esc(r.filename)}</span>
-      <span class="badge">${r.field_count || 0}f</span>
+      <span class="meta">${(r.field_count || 0)}f</span>
     </div>`).join("");
 }
 
 function renderDocList() {
   const el = $("#doc-list");
-  if (!state.docs.length) { el.innerHTML = '<div id="empty-state">no documents</div>'; return; }
-  el.innerHTML = state.docs.map(d => {
-    const r = state.patternResults?.ok && state.patternResults.results.find(x => x.doc_id === d.id);
-    const badge = r ? `<span class="match-badge ${r.match_count ? "" : "zero"}">${r.match_count}</span>` : "";
-    return `<div class="doc-item ${state.activeDocId === d.id ? "active" : ""}" data-id="${d.id}">
-      <input type="checkbox" data-corpus="${d.id}" ${state.corpus.has(d.id) ? "checked" : ""}>
+  // banner: show what state.docs represents
+  let banner = "";
+  if (state.docsSource === "discover") {
+    let pfBit = "";
+    if (state.docsPrefilter) {
+      pfBit = ` · ${state.docsPrefilterAuto ? "auto-" : ""}prefilter: <b>${esc(state.docsPrefilter)}</b>`;
+    }
+    banner = `<div class="docs-banner">scanned <b>${state.docsScanned}</b> · matched <b>${state.docs.length}</b>${state.docsTruncated ? " · scan truncated" : ""}${pfBit}</div>`;
+  } else {
+    banner = `<div class="docs-banner">paperless search · ${state.docs.length} doc${state.docs.length === 1 ? "" : "s"}</div>`;
+  }
+  if (!state.docs.length) {
+    el.innerHTML = banner + '<div class="empty">' +
+      (state.docsSource === "discover"
+        ? "no docs match — adjust the match regex or add a paperless search prefilter"
+        : "no documents — type a search above") + '</div>';
+    return;
+  }
+  // pass/skip/fail dot per doc (from latest extraction, if any)
+  const verdictById = {};
+  for (const r of state.extraction?.results || []) {
+    let v = "neutral";
+    if (r.error) v = "err";
+    else if (r.extraction?.excluded_by) v = "warn";
+    else if (!r.extraction?.matched) v = "warn";
+    else if (r.extraction?.required_ok) v = "ok";
+    else v = "err";
+    verdictById[r.doc_id] = v;
+  }
+  el.innerHTML = banner + state.docs.map(d => {
+    const v = verdictById[d.id] || "ok";
+    const dotCls = v === "ok" ? "" : (v === "warn" ? "warn" : "err");
+    return `<div class="doc-item ${state.activeDocId === d.id ? "active" : ""}" data-id="${d.id}" title="${escAttr(d.title || "")}">
+      <span class="dot ${dotCls}"></span>
       <span class="id">#${d.id}</span>
-      <span class="title">${esc(d.title || "(no title)")}</span>
-      ${badge}
+      <span class="name">${esc(d.title || "(no title)")}</span>
     </div>`;
   }).join("");
 }
 
-function renderPresets() {
-  $("#presets-list").innerHTML = PRESETS.map(([name, p]) =>
-    `<button class="preset" data-pattern="${escAttr(p)}">${esc(name)}</button>`
-  ).join("");
+function renderStepper() {
+  const pane = $("#pane-middle");
+  pane.classList.toggle("step-1", state.step === 1);
+  pane.classList.toggle("step-2", state.step === 2);
+
+  // step1 is "complete" when corpus has at least one matching doc
+  const step1Done = state.docsSource === "discover" && state.docs.length > 0;
+  // step2 is "complete" when at least one field is defined
+  const step2Done = state.rule.fields.length > 0;
+
+  document.querySelectorAll(".stepper .step").forEach(el => {
+    const n = +el.dataset.step;
+    el.classList.toggle("active", n === state.step);
+    el.classList.toggle("complete", n === 1 ? step1Done : step2Done);
+  });
+
+  // step descriptions
+  $("#step1-desc").textContent = state.docsSource === "discover"
+    ? `${state.docs.length} doc${state.docs.length === 1 ? "" : "s"} matched`
+    : "match & exclude";
+  $("#step2-desc").textContent = state.rule.fields.length
+    ? `${state.rule.fields.length} field${state.rule.fields.length === 1 ? "" : "s"}`
+    : "define fields";
+
+  // selection summary card (visible in step 2)
+  if (state.step === 2) {
+    const summary = $("#selection-summary-text");
+    const matchPart = state.rule.match
+      ? `match <code>${esc(state.rule.match.length > 60 ? state.rule.match.slice(0, 60) + "…" : state.rule.match)}</code>`
+      : `<span style="color:var(--red)">match: <i>not set</i></span>`;
+    const excludePart = state.rule.exclude
+      ? ` · exclude <code>${esc(state.rule.exclude.length > 40 ? state.rule.exclude.slice(0, 40) + "…" : state.rule.exclude)}</code>`
+      : "";
+    const corpusPart = state.docsSource === "discover"
+      ? ` · <b>${state.docs.length}</b> doc${state.docs.length === 1 ? "" : "s"} in corpus`
+      : "";
+    summary.innerHTML = matchPart + excludePart + corpusPart;
+    $("#selection-summary").hidden = false;
+  } else {
+    $("#selection-summary").hidden = true;
+  }
 }
 
-function renderOCRView() {
-  const titleEl = $("#ocr-title");
+function setStep(n) {
+  state.step = n;
+  try { localStorage.setItem("paperless-rules:step", String(n)); } catch {}
+  renderStepper();
+  // rerender right pane so outcome detail level matches the step
+  renderOutcomeCards();
+}
+
+function renderRuleHeader() {
+  $("#rule-name").textContent = state.currentFilename || "— no rule —";
+  const fcount = state.rule.fields.length;
+  const corpusCount = state.docs.length;
+  $("#rule-sub").textContent =
+    (state.currentFilename ? `${fcount} field${fcount === 1 ? "" : "s"}` : "") +
+    (corpusCount ? `${state.currentFilename ? " · " : ""}${corpusCount} doc${corpusCount === 1 ? "" : "s"} in corpus` : "");
+}
+
+function renderOcrView() {
+  const docNameEl = $("#ocr-doc-name");
+  const body = $("#ocr-body");
+  const view = $("#ocr-view");
+  // Toggle pdf-mode class to swap visible child (iframe vs ocr-body)
+  view.classList.toggle("pdf-mode", state.ocrViewMode === "pdf");
+  document.querySelectorAll(".view-tab").forEach(b => {
+    b.classList.toggle("active", b.dataset.view === state.ocrViewMode);
+  });
+
   if (!state.activeDocId) {
-    titleEl.textContent = "— select a document —";
-    titleEl.classList.add("muted");
-    $("#ocr-content").innerHTML = "";
-    $("#btn-bootstrap").disabled = true;
+    docNameEl.textContent = "— select a document —";
+    body.innerHTML = "";
     return;
   }
-  titleEl.classList.remove("muted");
-  titleEl.textContent = `Doc #${state.activeDocId} — ${state.activeDocTitle}`;
-  $("#btn-bootstrap").disabled = false;
-  let matches = [];
-  if (state.patternResults?.ok) {
-    const r = state.patternResults.results.find(x => x.doc_id === state.activeDocId);
-    if (r?.matches) matches = r.matches;
+  docNameEl.textContent = `Doc #${state.activeDocId} — ${state.activeDocTitle}`;
+  const matches = [
+    ...findMatches(state.activeDocText, state.rule.match, ""),
+    ...findMatches(state.activeDocText, state.rule.exclude, "exclude"),
+  ];
+  body.innerHTML = renderTextWithMatches(state.activeDocText, matches, state.showWhitespace);
+}
+
+function corpusStatsForPattern(pat) {
+  // Best-effort client-side: count docs in corpus where the pattern matches
+  // (the active doc text we have; for others we don't have full text on the
+  // client unless they were loaded — fall back to active-doc-only stats).
+  if (!pat) return { hits: 0, total: 0, error: false, knownDocs: 0 };
+  const re = safeRe(pat, "gms");
+  if (!re) return { error: true };
+  // We only have full text for the active doc; use server-side extraction
+  // for corpus-level stats instead.
+  const ext = state.extraction?.results || [];
+  let hits = 0;
+  for (const r of ext) {
+    if (r.extraction?.matched != null) {
+      // For match: it tells us whether this rule matched (which is the match regex)
+    }
   }
-  $("#ocr-content").innerHTML = renderTextWithMatches(state.activeDocText, matches, state.showWhitespace);
+  return { hits, total: ext.length, knownDocs: ext.length };
 }
 
-function renderStats() {
-  const el = $("#corpus-stats");
-  const r = state.patternResults;
-  el.classList.remove("error");
-  if (!state.pattern) { el.textContent = "— no pattern —"; return; }
-  if (!r) { el.textContent = "…"; return; }
-  if (!r.ok) { el.classList.add("error"); el.textContent = `regex error: ${r.error}`; return; }
-  // Label the stats by what the regex represents in the rule.
-  const prefix = state.field === "match"   ? "rule fires on "
-              : state.field === "exclude" ? "rule disqualified on "
-              : "";
-  const docs = r.results.filter(x => x.source === "doc");
-  if (docs.length) {
-    const hits = docs.filter(x => x.match_count > 0).length;
-    const total = docs.reduce((s, x) => s + x.match_count, 0);
-    el.textContent = `${prefix}${hits}/${docs.length} docs · ${total} matches`;
-  } else if (r.results.length) {
-    el.textContent = `${prefix}${r.results[0].match_count} matches (active doc only)`;
-  } else el.textContent = "—";
-}
+function renderMatchCard() {
+  const input = $("#match-input");
+  if (input.value !== state.rule.match) input.value = state.rule.match;
+  const stats = $("#match-stats");
+  const pat = state.rule.match;
+  const re = pat ? safeRe(pat, "gms") : null;
+  input.classList.remove("ok", "warn", "err");
 
-function renderGroups() {
-  const el = $("#groups");
-  const r = state.patternResults;
-  if (!r?.ok) { el.innerHTML = ""; return; }
-  let m = null;
-  for (const x of r.results) if (x.matches?.length) { m = x.matches[0]; break; }
-  if (!m) { el.innerHTML = ""; return; }
-  let html = `<div class="group-row"><span class="gk">$0</span><span class="gv">${esc(m.match.slice(0, 120))}</span></div>`;
-  (m.groups || []).forEach((g, i) => {
-    let coerced = "";
-    if (i === 0 && m.coerced != null) {
-      coerced = ` <span class="coerced">→ ${esc(String(m.coerced))} (${state.type})</span>`;
-    }
-    html += `<div class="group-row"><span class="gk">$${i + 1}</span><span class="gv">"${esc(g)}"${coerced}</span></div>`;
-  });
-  el.innerHTML = html;
-}
-
-function renderResults() {
-  const titleEl = $("#results-title");
-  const list = $("#results-list");
-  if (state.resultsMode === "pattern") {
-    titleEl.textContent = "PATTERN MATCHES";
-    if (!state.patternResults?.ok) {
-      list.innerHTML = '<div id="empty-state">type a pattern to begin</div>';
-      return;
-    }
-    const html = state.patternResults.results.map(r => {
-      const cls = r.error ? "error" : (r.match_count ? "ok" : "");
-      const title = r.source === "text" ? "(inline text)"
-                  : (state.docs.find(d => d.id === r.doc_id) || { title: `#${r.doc_id}` }).title;
-      const status = r.error ? "error" : `${r.match_count} match${r.match_count === 1 ? "" : "es"}`;
-      let body;
-      if (r.error) body = `<div class="ctx" style="color:var(--red)">${esc(r.error)}</div>`;
-      else if (!r.match_count) body = `<div class="ctx muted">no match</div>`;
-      else body = (r.matches || []).slice(0, 3).map(m => {
-        const c = m.coerced != null ? ` <span class="coerced">→ ${esc(String(m.coerced))}</span>` : "";
-        return `<div class="ctx">${esc(m.match.slice(0, 120))}${c}</div>`;
-      }).join("");
-      return `<div class="result-card ${cls}">
-        <div class="head"><span>${esc(title)}</span><span>${status}</span></div>${body}
-      </div>`;
-    }).join("");
-    list.innerHTML = html || '<div id="empty-state">corpus is empty — check some docs in the left pane</div>';
+  if (!pat) {
+    stats.innerHTML = `<span class="muted" style="color:var(--ink-soft)">— no pattern —</span>`;
+  } else if (!re) {
+    stats.innerHTML = `<b class="err">invalid regex</b>`;
+    input.classList.add("err");
+  } else if (state.docsSource === "discover") {
+    const n = state.docs.length;
+    const cls = n ? "" : "err";
+    stats.innerHTML = `<b class="${cls}">${n}</b> doc${n === 1 ? "" : "s"} match · scanned <b>${state.docsScanned}</b>${state.docsTruncated ? " · truncated" : ""}`;
+    input.classList.add(n ? "ok" : "err");
   } else {
-    titleEl.textContent = "EXTRACTION RESULTS";
-    const r = state.extractionResults;
-    if (!r?.results?.length) { list.innerHTML = '<div id="empty-state">no results</div>'; return; }
-    list.innerHTML = r.results.map(x => {
-      if (x.error) return `<div class="result-card error">
-        <div class="head"><span>#${x.doc_id}</span><span>error</span></div>
-        <div class="ctx">${esc(x.error)}</div></div>`;
-      const ext = x.extraction;
-      let cls, status;
-      if (ext.excluded_by) { cls = ""; status = "excluded"; }
-      else if (!ext.matched) { cls = ""; status = "no match"; }
-      else if (ext.required_ok) { cls = "ok"; status = "ok"; }
-      else { cls = "partial"; status = "partial"; }
-      const fields = Object.entries(ext.fields || {}).map(([n, f]) => {
-        const val = f.ok ? `<span class="coerced">${esc(String(f.value))}</span>`
-                         : `<span class="muted">${esc(f.error || "no match")}</span>`;
-        return `<div class="field-row"><span class="fname">${esc(n)}</span><span class="fval">${val}</span></div>`;
-      }).join("");
-      let extra = "";
-      if (ext.excluded_by) extra = `<div class="ctx muted">excluded by: ${esc(ext.excluded_by)}</div>`;
-      else if (ext.missing_keywords?.length) extra = `<div class="ctx muted">missing: ${esc(ext.missing_keywords.join(", "))}</div>`;
-      return `<div class="result-card ${cls}">
-        <div class="head"><span>${esc(x.title || `#${x.doc_id}`)}</span><span>${status}</span></div>
-        ${fields}${extra}
-      </div>`;
-    }).join("");
+    stats.innerHTML = `<span class="muted" style="color:var(--ink-soft)">type to discover…</span>`;
+  }
+
+  // Multi-doc preview: render snippets from up to 5 discovered docs.
+  // Each line shows '#id title · …snippet…' with the matched substring highlighted.
+  const previewEl = $("#match-preview");
+  if (!pat) {
+    previewEl.innerHTML = `<span class="preview-tag">type a pattern to discover docs</span>`;
+    return;
+  }
+  if (state.docsSource !== "discover" || !state.docs.length) {
+    previewEl.innerHTML = `<span class="preview-tag">${state.docsSource === "discover" ? "no matches in scan" : "—"}</span>`;
+    return;
+  }
+  const top = state.docs.slice(0, 5);
+  previewEl.innerHTML = top.map(d => {
+    let body;
+    if (d.snippet != null && d.match_start != null) {
+      const s = d.snippet;
+      const a = Math.max(0, d.match_start), b = Math.max(a, d.match_end);
+      body = (d.leading_ellipsis ? "…" : "") +
+             esc(s.slice(0, a)) +
+             `<mark>${esc(s.slice(a, b))}</mark>` +
+             esc(s.slice(b)) +
+             (d.trailing_ellipsis ? "…" : "");
+    } else {
+      body = esc(d.title || "(no title)");
+    }
+    return `<div class="match-preview-row"><span class="match-preview-doc">#${d.id}</span> ${body}</div>`;
+  }).join("");
+  if (state.docs.length > top.length) {
+    previewEl.innerHTML += `<div class="match-preview-more">+ ${state.docs.length - top.length} more in left pane</div>`;
   }
 }
 
-function renderYAMLStatus() {
-  const text = $("#yaml-editor").value;
-  const lines = text ? text.split("\n").length : 0;
-  $("#line-count").textContent = `${lines} line${lines === 1 ? "" : "s"}`;
-  const status = $("#yaml-status");
-  if (!text.trim()) { status.textContent = "—"; status.className = "muted"; return; }
-  // Parse field names so the field selector reflects the YAML.
-  const fm = text.match(/^fields:[\s\S]*?(?=^[a-zA-Z_]+:|$)/m);
-  const fields = [];
-  if (fm) {
-    const re = /^[ \t]+([a-zA-Z_][a-zA-Z0-9_]*):/gm;
-    let m;
-    while ((m = re.exec(fm[0])) !== null) {
-      if (m[1] !== "regex" && m[1] !== "type") fields.push(m[1]);
+function renderExcludeCard() {
+  const input = $("#exclude-input");
+  if (input.value !== state.rule.exclude) input.value = state.rule.exclude;
+  const stats = $("#exclude-stats");
+  const pat = state.rule.exclude;
+  input.classList.remove("ok", "warn", "err");
+
+  if (!pat) {
+    stats.innerHTML = `<span class="muted" style="color:var(--ink-soft)">no exclude · all pass</span>`;
+  } else {
+    const re = safeRe(pat, "gms");
+    if (!re) {
+      stats.innerHTML = `<b class="err">invalid regex</b>`;
+      input.classList.add("err");
+    } else {
+      const ext = state.extraction?.results || [];
+      if (ext.length) {
+        const excluded = ext.filter(r => r.extraction?.excluded_by).length;
+        const cls = excluded ? "warn" : "";
+        stats.innerHTML = `<b class="${cls}">excludes ${excluded}/${ext.length}</b>`;
+        input.classList.add(excluded ? "warn" : "ok");
+      } else {
+        stats.innerHTML = `<span class="muted" style="color:var(--ink-soft)">no corpus</span>`;
+        input.classList.add("ok");
+      }
     }
   }
-  syncFieldSelector(fields);
-  status.textContent = "yaml ok";
-  status.className = "ok";
+
+  const pv = $("#exclude-preview .preview-text");
+  pv.innerHTML = renderPreviewSnippet(state.activeDocText, pat, "exclude");
 }
 
-function syncFieldSelector(fields) {
-  // The target dropdown spans the rule's two phases: pseudo-targets `match`
-  // and `exclude` write to the rule's top-level keys; the rest are real
-  // field names parsed from the YAML.
-  const fieldNames = fields.length ? fields : ["amount"];
-  const all = ["match", "exclude", ...fieldNames];
-  const sel = $("#field-select");
-  sel.innerHTML = all.map(f => {
-    const label = (f === "match" || f === "exclude") ? `[${f}]` : f;
-    return `<option value="${esc(f)}" ${f === state.field ? "selected" : ""}>${label}</option>`;
-  }).join("");
-  if (!all.includes(state.field)) { state.field = "match"; sel.value = state.field; }
-  updateApplyLabel();
+function renderPreviewSnippet(text, pat, klass) {
+  if (!pat) return '<span class="muted" style="color:var(--ink-soft); font-style:italic">empty pattern</span>';
+  const re = safeRe(pat, "ms");
+  if (!re) return '<span style="color:var(--red)">invalid regex</span>';
+  if (!text) return '<span class="muted" style="color:var(--ink-soft); font-style:italic">no active doc</span>';
+  const m = text.match(re);
+  if (!m) return '<span style="color:var(--red); font-style:italic">no match in active doc</span>';
+  const start = Math.max(0, m.index - 20);
+  const end   = Math.min(text.length, m.index + m[0].length + 20);
+  let snip = text.slice(start, end).replace(/\n/g, " · ");
+  // re-run on snip for highlight
+  const re2 = safeRe(pat, "gms");
+  let out = "", last = 0, mm, guard = 0;
+  while (re2 && (mm = re2.exec(snip)) && guard++ < 100) {
+    if (mm.index === re2.lastIndex) re2.lastIndex++;
+    out += esc(snip.slice(last, mm.index));
+    if (mm[1] !== undefined) {
+      // group capture inside full match — highlight whole, mark cap inside
+      const full = mm[0];
+      const capStart = full.indexOf(mm[1]);
+      out += `<mark class="${klass}">${esc(full.slice(0, capStart))}<mark class="cap">${esc(mm[1])}</mark>${esc(full.slice(capStart + mm[1].length))}</mark>`;
+    } else {
+      out += `<mark class="${klass}">${esc(mm[0])}</mark>`;
+    }
+    last = mm.index + mm[0].length;
+  }
+  out += esc(snip.slice(last));
+  return (start > 0 ? "…" : "") + out + (end < text.length ? "…" : "");
 }
 
-function updateApplyLabel() {
-  const target = state.field;
-  const btn = $("#btn-apply");
-  if (!btn) return;
-  btn.textContent = `apply to ${target === "match" || target === "exclude" ? `[${target}]` : target}`;
+// template validation (port from mock A)
+function templateRefs(body) {
+  return [...String(body || "").matchAll(/\{(\w+)\}/g)].map(m => m[1]);
 }
+function validateTemplate(body, ownerName) {
+  const refs = templateRefs(body);
+  const missing = [];
+  let cycle = false;
+  const fieldByName = n => state.rule.fields.find(x => x.name === n);
+  for (const r of refs) {
+    if (r === ownerName) { cycle = true; continue; }
+    if (!fieldByName(r))  { if (!missing.includes(r)) missing.push(r); continue; }
+    const seen = new Set([ownerName]);
+    const stack = [r];
+    while (stack.length) {
+      const cur = stack.pop();
+      if (seen.has(cur)) continue;
+      seen.add(cur);
+      const f = fieldByName(cur);
+      if (!f || f.kind !== "template") continue;
+      for (const sub of templateRefs(f.body)) {
+        if (sub === ownerName) { cycle = true; break; }
+        if (!seen.has(sub)) stack.push(sub);
+      }
+      if (cycle) break;
+    }
+    if (cycle) break;
+  }
+  return { refs, missing, cycle };
+}
+
+function paperlessValidate(name, ruleType) {
+  if (state.paperlessSchemaState === "loading") return { state: "loading" };
+  if (state.paperlessSchemaState === "offline") return { state: "offline" };
+  const pf = state.paperlessFields[name];
+  if (!pf) return { state: "missing" };
+  const accept = TYPE_ACCEPT[ruleType] || new Set();
+  if (!accept.has(pf.data_type)) return { state: "mismatch", paperlessType: pf.data_type };
+  return { state: "match", paperlessType: pf.data_type };
+}
+
+function renderPfBadge(badgeEl, name, ruleType) {
+  badgeEl.className = "pf-badge";
+  badgeEl.title = "";
+  if (!name)                        { badgeEl.textContent = ""; return; }
+  if (RESERVED_BUILTINS.has(name)) {
+    badgeEl.classList.add("muted");
+    badgeEl.textContent = "built-in";
+    badgeEl.title = "Reserved name — writes to a paperless built-in field, not custom_fields.";
+    return;
+  }
+  const v = paperlessValidate(name, ruleType);
+  if (v.state === "loading") {
+    badgeEl.classList.add("muted");
+    badgeEl.textContent = "schema…";
+    return;
+  }
+  if (v.state === "offline") {
+    badgeEl.classList.add("offline");
+    badgeEl.textContent = "? offline";
+    badgeEl.title = "paperless schema unreachable — click ↻ in topbar to retry";
+    return;
+  }
+  if (v.state === "missing") {
+    badgeEl.classList.add("missing");
+    badgeEl.textContent = "✗ new";
+    badgeEl.title = `Custom field "${name}" doesn't exist in paperless yet — will be created on apply.`;
+    return;
+  }
+  if (v.state === "match") {
+    badgeEl.classList.add("match");
+    badgeEl.textContent = `✓ ${v.paperlessType}`;
+    badgeEl.title = `paperless: data_type=${v.paperlessType} (compatible with rule type=${ruleType})`;
+    return;
+  }
+  if (v.state === "mismatch") {
+    badgeEl.classList.add("mismatch");
+    badgeEl.textContent = `⚠ ${v.paperlessType}≠${ruleType}`;
+    badgeEl.title = `Type mismatch — paperless says ${v.paperlessType}, rule says ${ruleType}.`;
+  }
+}
+
+function renderFieldRows() {
+  const root = $("#field-rows");
+  root.innerHTML = "";
+
+  state.rule.fields.forEach((f, i) => {
+    const row = document.createElement("div");
+    row.className = "field-row";
+
+    // col 1: name + pill + paperless badge
+    const nameCol = document.createElement("div");
+    nameCol.className = "col";
+    const nameInp = document.createElement("input");
+    nameInp.type = "text";
+    nameInp.value = f.name;
+    nameInp.spellcheck = false;
+    nameInp.setAttribute("list", "field-names");      // datalist of paperless fields
+    nameInp.placeholder = "pick or type…";
+    nameInp.className = "name-input" + (RESERVED_BUILTINS.has(f.name) ? " reserved" : "");
+    nameInp.addEventListener("input", e => {
+      f.name = e.target.value.trim();
+      nameInp.classList.toggle("reserved", RESERVED_BUILTINS.has(f.name));
+      pill.textContent = RESERVED_BUILTINS.has(f.name) ? "built-in" : "custom";
+      pill.className = "pill " + (RESERVED_BUILTINS.has(f.name) ? "builtin" : "custom");
+      renderPfBadge(badge, f.name, f.type);
+      renderRowStats(); markDirty(); scheduleSerialize(); renderRequiredTags();
+    });
+    const pill = document.createElement("span");
+    pill.className = "pill " + (RESERVED_BUILTINS.has(f.name) ? "builtin" : "custom");
+    pill.style.alignSelf = "flex-start";
+    pill.textContent = RESERVED_BUILTINS.has(f.name) ? "built-in" : "custom";
+    const badge = document.createElement("span");
+    badge.className = "pf-badge";
+    nameCol.appendChild(nameInp);
+    nameCol.appendChild(pill);
+    nameCol.appendChild(badge);
+    row.appendChild(nameCol);
+
+    // col 2: kind toggle (re | val | tpl | adv)
+    const kindCol = document.createElement("div");
+    kindCol.className = "col";
+    const toggle = document.createElement("div");
+    toggle.className = "kind-toggle";
+    KIND_ORDER.forEach(k => {
+      const b = document.createElement("button");
+      b.textContent = KIND_LABELS[k];
+      b.title = k;
+      if (f.kind === k) b.classList.add("active");
+      b.addEventListener("click", () => {
+        if (f.kind === k) return;
+        if (k === "advanced") {
+          // Switching INTO advanced: synthesize YAML from the simple body so
+          // the user starts with the equivalent advanced spec, then can
+          // sprinkle in default/map/pick/etc.
+          if (!state.rule.extraFieldYaml[f.name]) {
+            state.rule.extraFieldYaml[f.name] = synthesizeAdvancedYaml(f);
+          }
+        } else if (f.kind === "advanced") {
+          // Switching OUT of advanced: drop the verbatim YAML.
+          if (state.rule.extraFieldYaml[f.name] &&
+              !confirm("Switching kinds will discard the advanced YAML for this field. Continue?")) {
+            return;
+          }
+          delete state.rule.extraFieldYaml[f.name];
+          if (!f.body) f.body = "";
+        }
+        f.kind = k;
+        renderFieldRows(); markDirty(); scheduleSerialize();
+      });
+      toggle.appendChild(b);
+    });
+    kindCol.appendChild(toggle);
+    row.appendChild(kindCol);
+
+    // col 3: body input + row stats — input for simple kinds, textarea for advanced
+    const bodyCol = document.createElement("div");
+    bodyCol.className = "col";
+    let bodyInp;
+    if (f.kind === "advanced") {
+      bodyInp = document.createElement("textarea");
+      bodyInp.className = "adv-body";
+      bodyInp.spellcheck = false;
+      bodyInp.rows = 4;
+      bodyInp.value = state.rule.extraFieldYaml[f.name] || "";
+      bodyInp.placeholder = "regex: 'PATTERN'\ntype: str\nmap:\n  KEY: value\ndefault: 'fallback'";
+      bodyInp.addEventListener("input", e => {
+        state.rule.extraFieldYaml[f.name] = e.target.value;
+        renderRowStats(); markDirty(); scheduleSerialize();
+      });
+    } else {
+      bodyInp = document.createElement("input");
+      bodyInp.type = "text";
+      bodyInp.value = f.body;
+      bodyInp.spellcheck = false;
+      bodyInp.placeholder = f.kind === "regex" ? "/pattern (capture)/"
+                         : f.kind === "value" ? "literal value"
+                         : "{date} #{invoice_number}";
+      bodyInp.addEventListener("input", e => {
+        f.body = e.target.value;
+        renderRowStats(); markDirty(); scheduleSerialize();
+      });
+    }
+    bodyCol.appendChild(bodyInp);
+
+    // snippet inserter for advanced mode
+    if (f.kind === "advanced") {
+      const sn = document.createElement("select");
+      sn.className = "adv-snippet";
+      sn.innerHTML = '<option value="">+ transform ▼</option>' +
+        Object.keys(SNIPPET_LABELS).map(k => `<option value="${k}">${esc(SNIPPET_LABELS[k])}</option>`).join("");
+      sn.addEventListener("change", e => {
+        const k = e.target.value;
+        e.target.value = "";
+        if (!k) return;
+        const cur = state.rule.extraFieldYaml[f.name] || "";
+        const sep = cur && !cur.endsWith("\n") ? "\n" : "";
+        state.rule.extraFieldYaml[f.name] = cur + sep + FIELD_SNIPPETS[k];
+        renderFieldRows(); markDirty(); scheduleSerialize();
+      });
+      bodyCol.appendChild(sn);
+    }
+
+    const stats = document.createElement("div");
+    stats.className = "row-stats";
+    bodyCol.appendChild(stats);
+    row.appendChild(bodyCol);
+
+    // col 4: type select
+    const typeCol = document.createElement("div");
+    typeCol.className = "col";
+    const typeSel = document.createElement("select");
+    if (f.kind === "value") typeSel.disabled = true;
+    TYPE_OPTIONS.forEach(t => {
+      const o = document.createElement("option");
+      o.value = t; o.textContent = t;
+      if (f.type === t) o.selected = true;
+      typeSel.appendChild(o);
+    });
+    typeSel.addEventListener("change", e => {
+      f.type = e.target.value;
+      renderPfBadge(badge, f.name, f.type);
+      markDirty(); scheduleSerialize();
+    });
+    typeCol.appendChild(typeSel);
+    row.appendChild(typeCol);
+
+    // col 5: sample
+    const sampleCol = document.createElement("div");
+    sampleCol.className = "col";
+    const sampleLine = document.createElement("div");
+    sampleLine.className = "row-stats";
+    sampleLine.style.fontSize = "10px";
+    sampleCol.appendChild(sampleLine);
+    row.appendChild(sampleCol);
+
+    // col 6: delete
+    const del = document.createElement("button");
+    del.className = "delete-btn";
+    del.title = "delete field";
+    del.textContent = "×";
+    del.addEventListener("click", () => {
+      state.rule.fields.splice(i, 1);
+      state.rule.required = state.rule.required.filter(n => n !== f.name);
+      delete state.rule.extraFieldYaml[f.name];
+      renderFieldRows(); renderRequiredTags(); markDirty(); scheduleSerialize();
+    });
+    row.appendChild(del);
+
+    function renderRowStats() {
+      bodyInp.classList.remove("ok", "warn", "err");
+      if (f.kind === "advanced") {
+        // sample comes from /api/test once the rule is serialized + re-tested
+        const ext = (state.extraction?.results || []).find(r => r.extraction?.fields?.[f.name]?.ok);
+        const sample = ext?.extraction?.fields?.[f.name]?.value;
+        stats.innerHTML = `<b>advanced</b> · ${(state.rule.extraFieldYaml[f.name] || "").split("\n").filter(l => l.trim() && !l.trim().startsWith("#")).length} keys`;
+        sampleLine.innerHTML = sample != null
+          ? `<span class="sample">${esc(String(sample))}</span>`
+          : `<span style="color:var(--ink-soft)">—</span>`;
+        return;
+      }
+      if (f.kind === "value") {
+        bodyInp.classList.add("ok");
+        stats.innerHTML = `<b>literal</b> · same on every doc`;
+        sampleLine.innerHTML = `<span class="sample">${esc(f.body || "—")}</span>`;
+        return;
+      }
+      if (f.kind === "template") {
+        const v = validateTemplate(f.body, f.name);
+        if (v.cycle) {
+          bodyInp.classList.add("err");
+          stats.innerHTML = `<b class="err">cycle</b> · references back to ${esc(f.name)}`;
+          sampleLine.innerHTML = `<span style="color:var(--red)">cycle blocks resolution</span>`;
+        } else if (v.missing.length) {
+          bodyInp.classList.add("err");
+          stats.innerHTML = `<b class="err">unknown:</b> ${v.missing.map(m => "{" + esc(m) + "}").join(", ")}`;
+          sampleLine.innerHTML = `<span style="color:var(--red)">add the missing field${v.missing.length === 1 ? "" : "s"}</span>`;
+        } else if (!v.refs.length) {
+          bodyInp.classList.add("warn");
+          stats.innerHTML = `<b class="warn">literal template</b> · no {placeholders}`;
+          sampleLine.innerHTML = `<span class="sample">${esc(f.body || "—")}</span>`;
+        } else {
+          bodyInp.classList.add("ok");
+          stats.innerHTML = `<b>${v.refs.length} placeholder${v.refs.length === 1 ? "" : "s"}</b>`;
+          // pick a sample from extraction (first matched doc)
+          const ext = (state.extraction?.results || []).find(r => r.extraction?.fields?.[f.name]?.ok);
+          const sample = ext?.extraction?.fields?.[f.name]?.value;
+          sampleLine.innerHTML = sample != null
+            ? `<span class="sample">${esc(String(sample))}</span>`
+            : "";
+        }
+        return;
+      }
+      // regex
+      const ext = state.extraction?.results || [];
+      if (!ext.length) {
+        bodyInp.classList.add(state.rule.fields[i] ? "ok" : "");
+        stats.innerHTML = `<span class="muted" style="color:var(--ink-soft)">no corpus</span>`;
+        sampleLine.innerHTML = "";
+        return;
+      }
+      let docs = 0, sample = null, errored = false;
+      for (const r of ext) {
+        const fr = r.extraction?.fields?.[f.name];
+        if (!fr) continue;
+        if (fr.error && fr.error.toLowerCase().includes("regex")) { errored = true; break; }
+        if (fr.ok) {
+          docs++;
+          if (r.doc_id === state.activeDocId && sample == null) sample = fr.value;
+        }
+      }
+      if (errored) {
+        bodyInp.classList.add("err");
+        stats.innerHTML = `<b class="err">invalid regex</b>`;
+        sampleLine.innerHTML = "";
+      } else {
+        const cls = docs === ext.length ? "ok" : (docs ? "warn" : "err");
+        bodyInp.classList.add(cls);
+        const labelCls = cls === "ok" ? "" : cls;
+        stats.innerHTML = `<b class="${labelCls}">${docs}/${ext.length} docs</b>`;
+        if (sample != null) {
+          sampleLine.innerHTML = `<span class="sample">${esc(String(sample))}</span>`;
+        } else {
+          // fall back to any matched doc
+          const anySample = ext.find(r => r.extraction?.fields?.[f.name]?.ok)?.extraction.fields[f.name].value;
+          sampleLine.innerHTML = anySample != null
+            ? `<span class="sample">${esc(String(anySample))}</span>`
+            : `<span style="color:var(--red)">no match</span>`;
+        }
+      }
+    }
+
+    renderRowStats();
+    renderPfBadge(badge, f.name, f.type);
+    root.appendChild(row);
+  });
+
+  // header stats
+  const fcount = state.rule.fields.length;
+  let okFields = 0;
+  if (state.extraction?.results?.length) {
+    for (const f of state.rule.fields) {
+      if (f.kind === "value")    { okFields++; continue; }
+      if (f.kind === "template") {
+        const v = validateTemplate(f.body, f.name);
+        if (!v.cycle && !v.missing.length) okFields++;
+        continue;
+      }
+      if (f.kind === "advanced") { okFields++; continue; }
+      const ext = state.extraction.results;
+      let allOk = true;
+      for (const r of ext) {
+        const fr = r.extraction?.fields?.[f.name];
+        if (!fr || !fr.ok) { allOk = false; break; }
+      }
+      if (allOk) okFields++;
+    }
+  } else {
+    okFields = fcount;
+  }
+  $("#fields-stats").innerHTML = fcount
+    ? `${fcount} field${fcount === 1 ? "" : "s"} · <b class="${okFields === fcount ? "" : "warn"}">${okFields}/${fcount} OK</b>`
+    : "no fields yet";
+}
+
+function renderRequiredTags() {
+  const root = $("#required-tags");
+  if (!root) return;
+  const names = state.rule.fields.map(f => f.name).filter(Boolean);
+  root.innerHTML = "";
+  if (!names.length) {
+    root.innerHTML = '<span class="muted" style="color:var(--ink-soft); font-size:10px;">add a field first</span>';
+    return;
+  }
+  for (const n of names) {
+    const t = document.createElement("span");
+    t.className = "req-tag" + (state.rule.required.includes(n) ? "" : " off");
+    t.textContent = state.rule.required.includes(n) ? `${n} ×` : `+ ${n}`;
+    t.addEventListener("click", () => {
+      if (state.rule.required.includes(n)) state.rule.required = state.rule.required.filter(x => x !== n);
+      else state.rule.required.push(n);
+      renderRequiredTags(); markDirty(); scheduleSerialize();
+    });
+    root.appendChild(t);
+  }
+}
+
+function renderOutcomeCards() {
+  const root = $("#outcome-cards");
+  const corpus = corpusIds();
+  if (!corpus.length) {
+    root.innerHTML = '<div class="empty">type a match regex (or a search) to populate the corpus — outcomes show here</div>';
+    return;
+  }
+  if (!state.extraction) {
+    root.innerHTML = '<div class="empty">testing…</div>';
+    return;
+  }
+  const results = state.extraction.results || [];
+  if (!results.length) {
+    root.innerHTML = '<div class="empty">no results</div>';
+    return;
+  }
+  root.innerHTML = "";
+  for (const r of results) {
+    const card = document.createElement("div");
+    card.className = "outcome-card";
+    const ext = r.extraction || {};
+    let verdict, verdictClass;
+    if (r.error)               { verdict = "error";          verdictClass = "fail"; }
+    else if (ext.excluded_by)  { verdict = "skip · excluded";verdictClass = "skip"; }
+    else if (!ext.matched)     { verdict = "skip · no match";verdictClass = "skip"; }
+    else if (ext.required_ok)  { verdict = "pass";           verdictClass = "pass"; }
+    else                       { verdict = "fail · missing"; verdictClass = "fail"; }
+
+    const head = document.createElement("div");
+    head.className = "oc-head";
+    head.innerHTML = `<span class="doc-name">${esc(r.title || `#${r.doc_id}`)}</span>
+                      <span class="verdict ${verdictClass}">${esc(verdict)}</span>`;
+    card.appendChild(head);
+
+    const body = document.createElement("div");
+    body.className = "oc-body";
+
+    if (r.error) {
+      const note = document.createElement("div");
+      note.className = "oc-note";
+      note.style.color = "var(--red)";
+      note.textContent = r.error;
+      body.appendChild(note);
+    } else {
+      // In step 1 (selection), only show whether the doc enters the corpus.
+      // In step 2 (extraction), show per-field values.
+      if (state.step === 2) {
+        for (const f of state.rule.fields) {
+          const fr = ext.fields?.[f.name];
+          const isBuiltin = RESERVED_BUILTINS.has(f.name);
+          const row = document.createElement("div");
+          const miss = !fr || !fr.ok;
+          row.className = "oc-row" + (miss ? " miss" : "");
+          const valHtml = miss
+            ? `<span class="val miss">${esc((fr && (fr.error || "no match")) || "no match")}</span>`
+            : `<span class="val${isBuiltin ? " builtin" : ""}">${esc(String(fr.value))}</span>`;
+          row.innerHTML = `<span class="key">${esc(f.name)}</span>${valHtml}`;
+          body.appendChild(row);
+        }
+      }
+      if (ext.excluded_by) {
+        const note = document.createElement("div");
+        note.className = "oc-note";
+        note.textContent = `excluded by: ${ext.excluded_by}`;
+        body.appendChild(note);
+      } else if (!ext.matched) {
+        const note = document.createElement("div");
+        note.className = "oc-note";
+        note.textContent = "match regex didn't fire — nothing written";
+        body.appendChild(note);
+      }
+    }
+
+    card.appendChild(body);
+    root.appendChild(card);
+  }
+}
+
+function renderOptions() {
+  const opts = state.rule.options || {};
+  const dfEl = $("#opt-date-formats");
+  const cur  = $("#opt-currency");
+  const lang = $("#opt-languages");
+  const dfStr = (opts.date_formats || []).join(", ");
+  const langStr = (opts.languages || []).join(", ");
+  if (dfEl  && dfEl.value !== dfStr)        dfEl.value = dfStr;
+  if (cur   && cur.value  !== (opts.currency || "")) cur.value = opts.currency || "";
+  if (lang  && lang.value !== langStr)      lang.value = langStr;
+}
+
+function renderRawYaml() {
+  const yaml = serializeRule(state.rule);
+  const colored = yaml
+    .split("\n")
+    .map(l => {
+      if (/^\s*#/.test(l)) return `<span class="c">${esc(l)}</span>`;
+      return l.replace(/^([A-Za-z_][A-Za-z0-9_]*)(\s*:)/, '<span class="k">$1</span>$2')
+              .replace(/^( {2,4})([A-Za-z_][A-Za-z0-9_ ]*?)(\s*:)/, '$1<span class="k">$2</span>$3');
+    })
+    .join("\n");
+  $("#raw-yaml").innerHTML = colored;
+}
+
+// ── all-up render ───────────────────────────────────────────────────
+
+function renderAll() {
+  renderTopbar();
+  renderRuleList();
+  renderDocList();
+  renderRuleHeader();
+  renderStepper();
+  renderOcrView();
+  renderMatchCard();
+  renderExcludeCard();
+  renderFieldRows();
+  renderRequiredTags();
+  renderOptions();
+  renderOutcomeCards();
+  renderRawYaml();
+}
+
+// ── data loading ────────────────────────────────────────────────────
 
 async function loadHealth() {
   try { renderHealth(await api.health()); }
   catch (e) {
-    $("#health-status").innerHTML = '<span class="dot error"></span>paperless: ' + esc(e.message);
+    const el = $("#health-pill");
+    el.classList.remove("ok"); el.classList.add("error");
+    el.innerHTML = '<span class="dot"></span>paperless: ' + esc(e.message);
   }
 }
-async function loadDocs(query = "") {
-  try { state.docs = (await api.listDocs(query)).results || []; renderDocList(); }
-  catch (e) { $("#doc-list").innerHTML = `<div id="empty-state">error: ${esc(e.message)}</div>`; }
+
+async function loadCustomFields() {
+  state.paperlessFields = null;
+  state.paperlessSchemaState = "loading";
+  renderFieldRows();
+  renderFieldNameDatalist();
+  try {
+    const data = await api.listCustomFields();
+    const list = data.fields || [];
+    state.paperlessFields = Object.fromEntries(list.map(f => [f.name, f]));
+    state.paperlessSchemaState = "ready";
+  } catch {
+    state.paperlessFields = {};
+    state.paperlessSchemaState = "offline";
+  }
+  renderFieldRows();
+  renderFieldNameDatalist();
 }
+
+function renderFieldNameDatalist() {
+  const dl = $("#field-names");
+  if (!dl) return;
+  // built-ins first, then existing paperless custom_fields sorted alpha.
+  const builtins = ["correspondent", "document_type", "tags", "title"];
+  const customNames = Object.values(state.paperlessFields || {})
+    .map(f => f.name)
+    .filter(n => n && !builtins.includes(n))
+    .sort((a, b) => a.localeCompare(b));
+  dl.innerHTML =
+    builtins.map(n => `<option value="${escAttr(n)}">${esc(n)} — built-in</option>`).join("") +
+    customNames.map(n => {
+      const t = state.paperlessFields[n].data_type;
+      return `<option value="${escAttr(n)}">${esc(n)} — paperless · ${esc(t)}</option>`;
+    }).join("");
+}
+
+// loadDocs decides between discovery (when match: is set) and search.
+// The result populates state.docs which IS the test corpus. Older inflight
+// calls are aborted so debounced typing doesn't pile up.
+let docsAbort = null;
+async function loadDocs() {
+  const search = $("#search-box").value.trim();
+  const matchPat = state.rule.match || "";
+  if (docsAbort) docsAbort.abort();
+  docsAbort = new AbortController();
+  const signal = docsAbort.signal;
+
+  if (matchPat) {
+    state.docsSource = "discover";
+    $("#doc-list").innerHTML = '<div class="empty">scanning paperless…</div>';
+    try {
+      const r = await fetch("/api/discover", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ match: matchPat, exclude: state.rule.exclude || null, search: search || null }),
+        signal,
+      });
+      const body = await r.json();
+      if (!r.ok) {
+        $("#doc-list").innerHTML = `<div class="empty">discover: ${esc(body.detail || r.status)}</div>`;
+        state.docs = []; state.docsScanned = 0; state.docsTruncated = false;
+      } else {
+        state.docs = body.matching || [];
+        state.docsScanned = body.scanned || 0;
+        state.docsTruncated = !!body.truncated_scan;
+        state.docsPrefilter = body.prefilter || "";
+        state.docsPrefilterAuto = !!body.prefilter_auto;
+      }
+    } catch (e) {
+      if (e.name === "AbortError") return;
+      $("#doc-list").innerHTML = `<div class="empty">discover error: ${esc(e.message)}</div>`;
+      state.docs = []; state.docsScanned = 0; state.docsTruncated = false;
+    }
+  } else {
+    state.docsSource = "search";
+    state.docsScanned = 0; state.docsTruncated = false;
+    try {
+      const data = await fetch(`/api/documents?query=${encodeURIComponent(search)}`, { signal })
+        .then(r => r.json());
+      state.docs = (data.results || []).map(d => ({ id: d.id, title: d.title }));
+    } catch (e) {
+      if (e.name === "AbortError") return;
+      $("#doc-list").innerHTML = `<div class="empty">error: ${esc(e.message)}</div>`;
+      state.docs = [];
+    }
+  }
+  renderDocList();
+  renderRuleHeader();
+  renderMatchCard();
+  renderExcludeCard();
+  runFullTest();
+}
+
 async function loadRules() {
-  try { state.rules = (await api.listRules()).rules || []; renderRuleList(); } catch {}
+  try {
+    state.rules = (await api.listRules()).rules || [];
+    renderRuleList();
+  } catch {}
 }
+
 async function loadDoc(id) {
   state.activeDocId = id;
-  state.activeDocText = ""; state.activeDocTitle = "loading…";
-  renderOCRView();
+  state.activeDocText = "";
+  state.activeDocTitle = "loading…";
+  // Wire the PDF iframe lazily — only loads when the user flips to PDF mode
+  // (and does so against our backend proxy, not paperless directly, so the
+  // API token never touches the browser).
+  $("#pdf-frame").src = `/api/documents/${id}/preview`;
+  renderOcrView();
   try {
     const d = await api.getDocText(id);
     state.activeDocText = d.content || "";
     state.activeDocTitle = d.title || "";
-    renderOCRView();
-    if (state.pattern) runPatternTest();
-  } catch (e) { state.activeDocTitle = `error: ${e.message}`; renderOCRView(); }
+    renderOcrView();
+    renderMatchCard();
+    renderExcludeCard();
+  } catch (e) {
+    state.activeDocTitle = `error: ${e.message}`;
+    renderOcrView();
+  }
 }
 
 async function loadRule(filename) {
   if (!filename) return;
   try {
     const r = await api.getRule(filename);
-    $("#yaml-editor").value = r.yaml;
-    $("#filename-input").value = filename;
     state.currentFilename = filename;
+    state.rule = parseRule(r.yaml);
     state.dirty = false;
-    $("#yaml-section").classList.remove("collapsed");
-    $("#yaml-toggle").textContent = "▼ yaml";
-    renderYAMLStatus();
-    renderActiveRule();
-    renderRuleList();
-    setSaveStatus("muted", "loaded");
+    setSaveStatus("", "loaded");
+    renderAll();
     try { localStorage.setItem("paperless-rules:active", filename); } catch {}
-  } catch (e) { alert(`load failed: ${e.message}`); }
+    loadDocs();   // discover docs matching the rule's `match:` → populates corpus → runs test
+  } catch (e) {
+    alert(`load failed: ${e.message}`);
+  }
 }
 
 function newRule() {
-  $("#yaml-editor").value = "";
-  $("#filename-input").value = "";
   state.currentFilename = "";
+  state.rule = emptyRule();
   state.dirty = false;
-  renderYAMLStatus();
-  renderActiveRule();
-  renderRuleList();
-  setSaveStatus("muted", "—");
-  $("#yaml-section").classList.remove("collapsed");
-  $("#yaml-toggle").textContent = "▼ yaml";
+  state.extraction = null;
+  setSaveStatus("", "—");
+  renderAll();
   $("#filename-input").focus();
   try { localStorage.removeItem("paperless-rules:active"); } catch {}
+  loadDocs();   // back to search-mode doc list (no match yet)
 }
 
 async function deleteCurrentRule() {
-  if (!state.currentFilename) {
-    setSaveStatus("muted", "no rule loaded");
-    return;
-  }
+  if (!state.currentFilename) { setSaveStatus("", "no rule loaded"); return; }
   if (!confirm(`Delete ${state.currentFilename}?`)) return;
   try {
     await api.deleteRule(state.currentFilename);
     newRule();
     await loadRules();
-    setSaveStatus("muted", "deleted");
+    setSaveStatus("", "deleted");
   } catch (e) {
     setSaveStatus("error", `delete failed: ${e.message.slice(0, 60)}`);
   }
 }
 
-const debouncedTest = debounce(() => runPatternTest(), 200);
-const debouncedAutoSave = debounce(() => autoSave(), 1500);
+// ── auto-save + serialize ───────────────────────────────────────────
 
-async function autoSave() {
-  const yaml = $("#yaml-editor").value;
-  const f = $("#filename-input").value.trim();
-  if (!yaml.trim() || !f) {
-    setSaveStatus("muted", f ? "(empty)" : "set filename");
-    return;
-  }
-  setSaveStatus("muted", "saving…");
-  try {
-    await api.saveRule(f, yaml);
-    state.currentFilename = f;
-    state.dirty = false;
-    renderActiveRule();
-    setSaveStatus("saved", `saved · ${shortTime(new Date().toISOString())}`);
-    await loadRules();
-    try { localStorage.setItem("paperless-rules:active", f); } catch {}
-  } catch (e) {
-    setSaveStatus("error", `error: ${e.message.slice(0, 60)}`);
-  }
-}
+const debouncedSerializeAndSave = debounce(() => autoSave(), 1500);
+const debouncedTest = debounce(() => runFullTest(), 600);
 
-async function runPatternTest() {
-  state.resultsMode = "pattern";
-  if (!state.pattern) {
-    state.patternResults = null;
-    renderStats(); renderGroups(); renderOCRView(); renderResults(); renderDocList();
-    return;
-  }
-  const corpus = [...state.corpus];
-  const body = { pattern: state.pattern, flags: state.flags, type: state.type || null };
-  if (corpus.length) body.doc_ids = corpus;
-  else if (state.activeDocText) body.text = state.activeDocText;
-  else { state.patternResults = null; renderStats(); return; }
-
-  try { state.patternResults = await api.testRegex(body); }
-  catch (e) { state.patternResults = { ok: false, error: e.message, results: [] }; }
-  renderStats(); renderGroups(); renderOCRView(); renderResults(); renderDocList();
-
-  if (state.patternResults.ok && state.pattern.length >= 3) {
-    const docs = state.patternResults.results.filter(x => x.source === "doc");
-    addHistory(state.currentFilename, state.field, {
-      pattern: state.pattern, flags: state.flags,
-      timestamp: new Date().toISOString(),
-      stats: {
-        docs: docs.length,
-        hits: docs.filter(x => x.match_count > 0).length,
-        total: docs.reduce((s, x) => s + x.match_count, 0),
-      },
-    });
-  }
-}
-
-function showHistoryDropdown() {
-  document.querySelectorAll(".hist-dropdown").forEach(n => n.remove());
-  const list = getHistory(state.currentFilename, state.field);
-  const dd = document.createElement("div");
-  dd.className = "hist-dropdown";
-  if (!list.length) {
-    dd.innerHTML = '<div class="hist-empty">no history yet for this field</div>';
-  } else {
-    dd.innerHTML = list.map((e, i) => {
-      const stats = e.stats ? `${e.stats.hits}/${e.stats.docs} ✓ ${e.stats.total}m` : "";
-      return `<div class="hist-row" data-idx="${i}">
-        <span class="ts">${shortTime(e.timestamp)}</span>
-        <span class="pat">${esc(e.pattern)}</span>
-        <span class="stats">${stats}</span>
-      </div>`;
-    }).join("");
-  }
-  const rect = $("#hist-btn").getBoundingClientRect();
-  dd.style.top = `${rect.bottom + 2}px`;
-  dd.style.left = `${Math.max(8, rect.right - 460)}px`;
-  document.body.appendChild(dd);
-  dd.addEventListener("click", e => {
-    const row = e.target.closest(".hist-row");
-    if (!row) return;
-    const entry = list[+row.dataset.idx];
-    $("#pattern").value = entry.pattern;
-    state.pattern = entry.pattern;
-    state.flags = entry.flags || "";
-    $("#flag-i").checked = state.flags.includes("i");
-    $("#flag-s").checked = state.flags.includes("s");
-    $("#flag-x").checked = state.flags.includes("x");
-    dd.remove();
-    runPatternTest();
-  });
-  setTimeout(() => {
-    document.addEventListener("click", function once(e) {
-      if (!dd.contains(e.target) && e.target !== $("#hist-btn")) {
-        dd.remove();
-        document.removeEventListener("click", once);
-      }
-    });
-  }, 0);
-}
-
-async function runFullRule() {
-  const yaml = $("#yaml-editor").value.trim();
-  if (!yaml) { alert("YAML is empty"); return; }
-  const corpus = [...state.corpus];
-  if (!corpus.length && state.activeDocId) corpus.push(state.activeDocId);
-  if (!corpus.length) { alert("add at least one document to the corpus"); return; }
-  try {
-    state.extractionResults = await api.testRule(yaml, corpus);
-    state.resultsMode = "extraction";
-    renderResults();
-  } catch (e) { alert(`rule test failed: ${e.message}`); }
-}
-
-function applyPatternToField() {
-  if (!state.pattern || !state.field) return;
-  const yaml = $("#yaml-editor").value;
-  const target = state.field;
-  const escaped = state.pattern.replace(/'/g, "''");
-  let updated;
-
-  if (target === "match" || target === "exclude") {
-    // Top-level YAML key — replace the existing line if present, else
-    // insert just after `issuer:` (or at the top if no issuer).
-    const lineRe = new RegExp(`^${target}:[ \\t]*['"]?[^'"\\n]*['"]?[ \\t]*$`, "m");
-    if (lineRe.test(yaml)) {
-      updated = yaml.replace(lineRe, `${target}: '${escaped}'`);
-    } else {
-      const issuerMatch = yaml.match(/^issuer:[^\n]*\n/m);
-      if (issuerMatch && issuerMatch.index !== undefined) {
-        const at = issuerMatch.index + issuerMatch[0].length;
-        updated = yaml.slice(0, at) + `${target}: '${escaped}'\n` + yaml.slice(at);
-      } else {
-        updated = `${target}: '${escaped}'\n${yaml}`;
-      }
-    }
-  } else {
-    const re = new RegExp(`(\\b${target}:\\n(?:[ \\t]+[^\\n]*\\n)*?[ \\t]+regex:[ \\t]*)['"]?([^'\\n"]*)['"]?`);
-    if (re.test(yaml)) {
-      updated = yaml.replace(re, (_, lead) => `${lead}'${escaped}'`);
-    } else {
-      const block = `\nfields:\n  ${target}:\n    regex: '${escaped}'\n    type: ${state.type}\n`;
-      updated = (yaml.trim() ? yaml + "\n" : "") + block;
-    }
-  }
-
-  $("#yaml-editor").value = updated;
-  $("#yaml-section").classList.remove("collapsed");
-  $("#yaml-toggle").textContent = "▼ yaml";
-  markDirty();
-  renderYAMLStatus();
-  debouncedAutoSave();
-}
-
-async function showBootstrap() {
-  if (!state.activeDocId) {
-    setSaveStatus("muted", "select a document first");
-    return;
-  }
-  let sug;
-  try { sug = await api.bootstrap(state.activeDocId); }
-  catch (e) { alert(`bootstrap failed: ${e.message}`); return; }
-  state.bootstrapSuggestion = sug;
-  $("#bootstrap-body").innerHTML = `
-    <div class="muted" style="font-size:11px;margin-bottom:12px">
-      A rule describes a <em>kind of document</em>, not a specific sender.
-      The same template can come from many issuers — sender-specific narrowing
-      goes into the match regex itself.
-    </div>
-    <div class="modal-section">
-      <h3>rule name</h3>
-      <input type="text" id="bs-filename" value="${escAttr(sug.filename_suggestion)}">
-    </div>
-    <div class="modal-section">
-      <h3>match regex — fires when this matches the doc</h3>
-      <input type="text" id="bs-match" value="${escAttr(sug.match || "")}">
-      <div class="muted" style="font-size:10px;margin-top:4px">
-        evaluated with multiline + dotall. Make it specific —
-        <code>"Invoice"</code> is too generic; <code>"Acme Corp.*?Invoice"</code>
-        anchors to a particular template.
-      </div>
-    </div>
-    <div class="modal-section">
-      <h3>exclude regex — disqualifies if matched (optional)</h3>
-      <input type="text" id="bs-exclude" value="${escAttr(sug.exclude || "")}">
-    </div>
-    <div class="muted" style="font-size:11px;margin-top:8px">
-      Fields are added in the YAML drawer after generating. Reserved field
-      names (<code>correspondent</code>, <code>document_type</code>,
-      <code>tags</code>, <code>title</code>) write to paperless built-ins;
-      everything else becomes a custom field.
-    </div>`;
-  $("#bootstrap-modal").hidden = false;
-}
-
-function generateRuleFromBootstrap() {
-  const sug = state.bootstrapSuggestion;
-  if (!sug) return;
-  const filename = $("#bs-filename").value;
-  const match = $("#bs-match").value;
-  const exclude = $("#bs-exclude").value;
-
-  const q = s => s === "" ? "''" :
-    /^[A-Za-z][A-Za-z0-9 _.\-/()]*$/.test(s) && !/[:#]/.test(s)
-      ? s : `'${String(s).replace(/'/g, "''")}'`;
-  const y =
-    `# MATCH — single regex; rule fires when this matches the doc\n` +
-    `match: ${q(match)}\n` +
-    `exclude: ${q(exclude)}\n` +
-    `# FIELDS — reserved names (correspondent, document_type, tags, title)\n` +
-    `# write to paperless built-ins; anything else becomes a custom field.\n` +
-    `# Forms: regex / value / template (with {name} placeholders).\n` +
-    `fields: {}\n` +
-    `required: []\n` +
-    `options:\n` +
-    `  currency: ${q(sug.currency || "EUR")}\n` +
-    `  date_formats:\n    - '%d.%m.%Y'\n` +
-    `  languages:\n    - ${sug.language || "fr"}\n`;
-
-  $("#yaml-editor").value = y;
-  $("#filename-input").value = filename;
-  state.currentFilename = filename;
-  $("#yaml-section").classList.remove("collapsed");
-  $("#yaml-toggle").textContent = "▼ yaml";
-  if (state.activeDocId) state.corpus.add(state.activeDocId);
-  markDirty();
-  renderYAMLStatus();
-  renderActiveRule();
-  renderDocList();
-  $("#bootstrap-modal").hidden = true;
-  debouncedAutoSave();
+function scheduleSerialize() {
+  renderRawYaml();
+  renderRuleHeader();
+  renderStepper();
+  renderOcrView();
+  renderMatchCard();
+  renderExcludeCard();
+  debouncedTest();
+  debouncedSerializeAndSave();
 }
 
 function markDirty() {
@@ -1041,30 +2267,107 @@ function markDirty() {
   $("#dirty-dot").classList.add("dirty");
 }
 
-function setupSplitter() {
-  // The OCR section is `flex: 1 1 0` and absorbs leftover space; the lower
-  // stack (regex tester + YAML drawer) gets a fixed height set via
-  // `--lower-h`. Dragging the splitter writes that variable. The cursor's
-  // distance from the bottom of the pane is the lower stack's height —
-  // moving the splitter up grows the lower stack, down shrinks it.
-  const splitter = $("#splitter-ocr");
-  if (!splitter) return;
-  const pane = $("#pane-middle");
-  const onMove = e => {
-    const r = pane.getBoundingClientRect();
-    const lower = Math.max(120, Math.min(r.height - 80, r.bottom - e.clientY));
-    pane.style.setProperty("--lower-h", lower + "px");
-  };
-  const onUp = () => {
-    splitter.classList.remove("dragging");
-    document.removeEventListener("mousemove", onMove);
-    document.removeEventListener("mouseup", onUp);
-  };
-  splitter.addEventListener("mousedown", e => {
+async function autoSave() {
+  const f = state.currentFilename.trim();
+  if (!f) { setSaveStatus("", "set filename"); return; }
+  setSaveStatus("", "saving…");
+  try {
+    const yaml = serializeRule(state.rule);
+    await api.saveRule(f, yaml);
+    state.dirty = false;
+    $("#dirty-dot").classList.remove("dirty");
+    setSaveStatus("ok", `saved · ${shortTime(new Date().toISOString())}`);
+    await loadRules();
+    try { localStorage.setItem("paperless-rules:active", f); } catch {}
+  } catch (e) {
+    setSaveStatus("error", `error: ${e.message.slice(0, 60)}`);
+  }
+}
+
+async function runFullTest() {
+  const corpus = corpusIds();
+  if (!corpus.length) {
+    state.extraction = null;
+    renderOutcomeCards();
+    renderMatchCard();
+    renderExcludeCard();
+    renderFieldRows();
+    renderDocList();
+    return;
+  }
+  const yaml = serializeRule(state.rule);
+  if (!yaml.trim()) return;
+  try {
+    state.extraction = await api.testRule(yaml, corpus);
+  } catch (e) {
+    state.extraction = { results: corpus.map(id => ({ doc_id: id, error: e.message })) };
+  }
+  renderOutcomeCards();
+  renderMatchCard();
+  renderExcludeCard();
+  renderFieldRows();
+  renderDocList();   // dot colors update from extraction verdicts
+  renderStepper();   // step1 completion reflects matched-doc count
+}
+
+// ── splitters + OCR resize ──────────────────────────────────────────
+
+function setupGutter(g) {
+  const side = g.dataset.gutter;
+  const ws = $("#workspace");
+  let dragging = false, startX = 0, startW = 0;
+  g.addEventListener("mousedown", e => {
+    dragging = true;
+    g.classList.add("dragging");
+    document.body.classList.add("col-resizing");
+    startX = e.clientX;
+    const cs = getComputedStyle(ws);
+    const v = side === "left" ? cs.getPropertyValue("--w-left") || "240px"
+                              : cs.getPropertyValue("--w-right") || "360px";
+    startW = parseInt(v, 10) || (side === "left" ? 240 : 360);
     e.preventDefault();
-    splitter.classList.add("dragging");
-    document.addEventListener("mousemove", onMove);
-    document.addEventListener("mouseup", onUp);
+  });
+  document.addEventListener("mousemove", e => {
+    if (!dragging) return;
+    const dx = e.clientX - startX;
+    if (side === "left") {
+      const w = Math.max(180, Math.min(520, startW + dx));
+      ws.style.setProperty("--w-left", w + "px");
+    } else {
+      const w = Math.max(240, Math.min(720, startW - dx));
+      ws.style.setProperty("--w-right", w + "px");
+    }
+  });
+  document.addEventListener("mouseup", () => {
+    if (!dragging) return;
+    dragging = false;
+    g.classList.remove("dragging");
+    document.body.classList.remove("col-resizing");
+  });
+}
+
+function setupOcrResize() {
+  const handle = $("#ocr-resize");
+  const view   = $("#ocr-view");
+  let dragging = false, startY = 0, startH = 0;
+  handle.addEventListener("mousedown", e => {
+    dragging = true;
+    handle.classList.add("dragging");
+    document.body.classList.add("row-resizing");
+    startY = e.clientY;
+    startH = view.offsetHeight;
+    e.preventDefault();
+  });
+  document.addEventListener("mousemove", e => {
+    if (!dragging) return;
+    const h = Math.max(80, Math.min(800, startH + (e.clientY - startY)));
+    view.style.setProperty("--ocr-h", h + "px");
+  });
+  document.addEventListener("mouseup", () => {
+    if (!dragging) return;
+    dragging = false;
+    handle.classList.remove("dragging");
+    document.body.classList.remove("row-resizing");
   });
 }
 
@@ -1080,13 +2383,10 @@ function openPalette() {
 
 function renderPaletteList(query) {
   const q = query.toLowerCase().trim();
-  const matches = q
-    ? state.rules.filter(r => r.filename.toLowerCase().includes(q))
-    : state.rules.slice();
+  const matches = q ? state.rules.filter(r => r.filename.toLowerCase().includes(q)) : state.rules.slice();
   let html = matches.map((r, i) => `
     <div class="palette-row ${i === 0 ? "active" : ""}" data-filename="${escAttr(r.filename)}">${esc(r.filename)}</div>
   `).join("");
-  // Offer to create a new rule when the query doesn't exactly match an existing one.
   if (q && !state.rules.some(r => r.filename.toLowerCase() === q)) {
     const name = q.endsWith(".yml") || q.endsWith(".yaml") ? q : q + ".yml";
     html += `<div class="palette-row create" data-create="${escAttr(name)}">+ create ${esc(name)}</div>`;
@@ -1103,10 +2403,9 @@ function paletteCommit(row) {
   } else if (row.dataset.create) {
     dlg.close();
     newRule();
-    $("#filename-input").value = row.dataset.create;
     state.currentFilename = row.dataset.create;
-    renderActiveRule();
-    setSaveStatus("muted", "type yaml then it auto-saves");
+    renderTopbar(); renderRuleHeader();
+    setSaveStatus("", "type fields then it auto-saves");
   }
 }
 
@@ -1135,40 +2434,30 @@ function setupPalette() {
     const row = e.target.closest(".palette-row");
     if (row) paletteCommit(row);
   });
-  $("#palette").addEventListener("close", () => {});
 }
 
-// ── keyboard shortcuts ──────────────────────────────────────────────
+// ── keyboard ────────────────────────────────────────────────────────
 
 function setupKeyboard() {
   document.addEventListener("keydown", e => {
     const mod = e.metaKey || e.ctrlKey;
     if (!mod) return;
     const k = e.key.toLowerCase();
-    if (k === "p") {
-      e.preventDefault();
-      openPalette();
-    } else if (k === "n") {
-      e.preventDefault();
-      newRule();
-    } else if (k === "s") {
-      e.preventDefault();
-      autoSave();           // flush the debounced save now
-    } else if (e.key === "Backspace" || e.key === "Delete") {
-      e.preventDefault();
-      deleteCurrentRule();
-    }
+    if (k === "p") { e.preventDefault(); openPalette(); }
+    else if (k === "n") { e.preventDefault(); newRule(); }
+    else if (k === "s") { e.preventDefault(); autoSave(); }
+    else if (e.key === "Backspace" || e.key === "Delete") { e.preventDefault(); deleteCurrentRule(); }
   });
 }
 
-// ── wire up ─────────────────────────────────────────────────────────
+// ── wiring ──────────────────────────────────────────────────────────
 
 function wire() {
-  setupSplitter();
+  document.querySelectorAll(".gutter").forEach(setupGutter);
+  setupOcrResize();
   setupPalette();
 
-  // Left pane
-  $("#search-box").addEventListener("input", debounce(e => loadDocs(e.target.value), 250));
+  $("#search-box").addEventListener("input", debounce(() => loadDocs(), 350));
   $("#rule-list").addEventListener("click", e => {
     const item = e.target.closest(".rule-item");
     if (item) loadRule(item.dataset.filename);
@@ -1188,111 +2477,111 @@ function wire() {
   });
   $("#btn-new-rule").addEventListener("click", newRule);
   $("#doc-list").addEventListener("click", async e => {
-    if (e.target.matches("input[data-corpus]")) {
-      const id = +e.target.dataset.corpus;
-      e.target.checked ? state.corpus.add(id) : state.corpus.delete(id);
-      renderDocList();
-      if (state.pattern) runPatternTest();
-      return;
-    }
     const item = e.target.closest(".doc-item");
     if (item) {
       const id = +item.dataset.id;
-      state.corpus.add(id);
-      $(`input[data-corpus="${id}"]`).checked = true;
       await loadDoc(id);
-      renderDocList();
-    }
-  });
-  $("#presets-list").addEventListener("click", e => {
-    if (e.target.matches(".preset")) {
-      $("#pattern").value = e.target.dataset.pattern;
-      state.pattern = e.target.dataset.pattern;
-      runPatternTest();
+      renderDocList(); renderRuleHeader();
     }
   });
 
-  // Middle pane — OCR
-  $("#show-whitespace").addEventListener("change", e => {
-    state.showWhitespace = e.target.checked;
-    renderOCRView();
-  });
-  $("#btn-bootstrap").addEventListener("click", showBootstrap);
-
-  // Middle pane — regex tester
-  $("#pattern").addEventListener("input", e => { state.pattern = e.target.value; debouncedTest(); });
-  ["i", "s", "x"].forEach(f => $(`#flag-${f}`).addEventListener("change", () => {
-    state.flags = ["i", "s", "x"].filter(x => $(`#flag-${x}`).checked).join("");
-    runPatternTest();
-  }));
-  $("#type-select").addEventListener("change", e => { state.type = e.target.value; runPatternTest(); });
-  $("#field-select").addEventListener("change", e => {
-    state.field = e.target.value;
-    updateApplyLabel();
-    if (state.pattern) runPatternTest();   // re-render stats with the new label
-  });
-  $("#hist-btn").addEventListener("click", e => { e.stopPropagation(); showHistoryDropdown(); });
-  $("#btn-apply").addEventListener("click", applyPatternToField);
-  $("#btn-run-rule").addEventListener("click", runFullRule);
-
-  // Middle pane — YAML
-  $("#yaml-toggle").addEventListener("click", () => {
-    const sec = $("#yaml-section");
-    sec.classList.toggle("collapsed");
-    $("#yaml-toggle").textContent = sec.classList.contains("collapsed") ? "▶ yaml" : "▼ yaml";
-  });
-  $("#yaml-editor").addEventListener("input", () => {
+  const debouncedDiscover = debounce(() => loadDocs(), 250);
+  function onMatchTouch() {
+    // Synchronous visual feedback: clear doc list + show "scanning" the
+    // instant the user types, so the pane visibly reacts even before the
+    // debounced fetch fires.
+    if (state.rule.match) {
+      state.docsSource = "discover";
+      $("#doc-list").innerHTML = '<div class="empty">scanning paperless…</div>';
+      $("#match-stats").innerHTML = '<span style="color:var(--ink-soft)">scanning…</span>';
+    }
+  }
+  $("#match-input").addEventListener("input", e => {
+    state.rule.match = e.target.value;
     markDirty();
-    renderYAMLStatus();
-    debouncedAutoSave();
+    onMatchTouch();
+    scheduleSerialize();
+    debouncedDiscover();
   });
+  $("#exclude-input").addEventListener("input", e => {
+    state.rule.exclude = e.target.value;
+    markDirty();
+    onMatchTouch();
+    scheduleSerialize();
+    debouncedDiscover();
+  });
+  $("#btn-add-field").addEventListener("click", () => {
+    state.rule.fields.push({ name: "", kind: "regex", body: "", type: "str" });
+    renderFieldRows(); renderRequiredTags(); markDirty(); scheduleSerialize();
+    // focus new row's name input
+    const rows = $("#field-rows").querySelectorAll(".field-row");
+    rows[rows.length - 1]?.querySelector("input.name-input")?.focus();
+  });
+
   $("#filename-input").addEventListener("input", e => {
     state.currentFilename = e.target.value;
     markDirty();
-    renderActiveRule();
-    debouncedAutoSave();
-  });
-  $("#snippet-select").addEventListener("change", e => {
-    const snippet = SNIPPETS[e.target.value];
-    if (snippet) {
-      insertAtCursor($("#yaml-editor"), snippet);
-      markDirty();
-      debouncedAutoSave();
-    }
-    e.target.value = "";
-    renderYAMLStatus();
+    renderRuleHeader();
+    debouncedSerializeAndSave();
   });
 
-  // Right pane
-  $("#btn-clear-corpus").addEventListener("click", () => {
-    state.corpus.clear();
-    renderDocList();
-    if (state.pattern) runPatternTest();
+  $("#btn-yaml-toggle").addEventListener("click", () => {
+    const yaml = $("#raw-yaml");
+    const btn = $("#btn-yaml-toggle");
+    yaml.classList.toggle("shown");
+    btn.textContent = yaml.classList.contains("shown") ? "hide raw YAML" : "show raw YAML";
   });
 
-  // Bootstrap modal
-  $("#btn-bs-cancel").addEventListener("click", () => { $("#bootstrap-modal").hidden = true; });
-  $("#btn-bs-generate").addEventListener("click", generateRuleFromBootstrap);
-  $(".backdrop").addEventListener("click", () => { $("#bootstrap-modal").hidden = true; });
+  $("#show-whitespace").addEventListener("change", e => {
+    state.showWhitespace = e.target.checked;
+    renderOcrView();
+  });
+
+  document.querySelectorAll(".view-tab").forEach(b => {
+    b.addEventListener("click", () => {
+      state.ocrViewMode = b.dataset.view;
+      renderOcrView();
+    });
+  });
+
+  $("#btn-refresh-schema").addEventListener("click", loadCustomFields);
+  $("#btn-test").addEventListener("click", () => runFullTest());
+
+  document.querySelectorAll(".stepper .step").forEach(b => {
+    b.addEventListener("click", () => setStep(+b.dataset.step));
+  });
+  $("#btn-edit-selection").addEventListener("click", () => setStep(1));
+
+  // options card
+  const splitCsv = s => s.split(",").map(x => x.trim()).filter(Boolean);
+  $("#opt-date-formats").addEventListener("input", e => {
+    state.rule.options.date_formats = splitCsv(e.target.value);
+    markDirty(); scheduleSerialize();
+  });
+  $("#opt-currency").addEventListener("input", e => {
+    state.rule.options.currency = e.target.value.trim();
+    markDirty(); scheduleSerialize();
+  });
+  $("#opt-languages").addEventListener("input", e => {
+    state.rule.options.languages = splitCsv(e.target.value);
+    markDirty(); scheduleSerialize();
+  });
 }
 
 // ── boot ────────────────────────────────────────────────────────────
 
 (async function boot() {
-  renderPresets();
-  syncFieldSelector(["amount"]);
-  $("#type-select").value = "float";
-  state.type = "float";
+  try {
+    const savedStep = localStorage.getItem("paperless-rules:step");
+    if (savedStep === "1" || savedStep === "2") state.step = +savedStep;
+  } catch {}
   wire();
   setupKeyboard();
-  await Promise.all([loadHealth(), loadDocs(), loadRules()]);
-  renderActiveRule();
-  // Restore the rule the user was last editing.
+  await Promise.all([loadHealth(), loadDocs(), loadRules(), loadCustomFields()]);
+  renderAll();
   try {
     const last = localStorage.getItem("paperless-rules:active");
-    if (last && state.rules.some(r => r.filename === last)) {
-      await loadRule(last);
-    }
+    if (last && state.rules.some(r => r.filename === last)) await loadRule(last);
   } catch {}
 })();
 </script>

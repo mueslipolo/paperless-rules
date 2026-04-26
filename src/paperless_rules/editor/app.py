@@ -9,6 +9,7 @@ from typing import Any
 
 import yaml
 from fastapi import FastAPI, HTTPException, Query
+from fastapi.responses import Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -48,6 +49,50 @@ class RegexTestRequest(BaseModel):
 
 class BootstrapRequest(BaseModel):
     doc_id: int
+
+
+class DiscoverRequest(BaseModel):
+    """Find paperless docs whose content matches a regex.
+
+    Used by the editor to auto-populate the test corpus from the rule's
+    `match:` pattern (and optional `exclude:`). Caller can pre-filter via
+    paperless full-text search by setting `search`; otherwise we derive
+    a literal-token prefilter from the regex so paperless does the heavy
+    narrowing before we run the regex.
+    """
+    match: str
+    exclude: str | None = None
+    search: str | None = None
+    scan_limit: int = 1000      # max docs to fetch+regex-test
+    max_matches: int = 100      # max matching docs to return
+
+
+def _derive_prefilter(pattern: str) -> str:
+    """Extract literal alphanumeric tokens (≥3 chars) from a regex so they
+    can be used as a paperless full-text query. Conservative: returns ""
+    when the regex contains alternation (|) since AND-joining tokens from
+    different branches would over-narrow.
+    """
+    if "|" in pattern:
+        return ""
+    # Drop escapes (\d, \s, \., …) and char classes ([abc])
+    simplified = _re.sub(r"\\.", " ", pattern)
+    simplified = _re.sub(r"\[[^\]]*\]", " ", simplified)
+    # Drop group prefixes like (?:, (?=, (?!, (?P<name>
+    simplified = _re.sub(r"\(\?[a-zA-Z!=:<][^)]*\)", " ", simplified)
+    simplified = _re.sub(r"[(){}*+?$^]", " ", simplified)
+    seen: set[str] = set()
+    out: list[str] = []
+    for m in _re.finditer(r"[A-Za-zÀ-ÿ0-9]{3,}", simplified):
+        t = m.group(0)
+        tl = t.lower()
+        if tl in seen:
+            continue
+        seen.add(tl)
+        out.append(t)
+        if len(out) >= 5:
+            break
+    return " ".join(out)
 
 
 def _build_re_flags(flags: str) -> int:
@@ -157,6 +202,32 @@ def create_app(
             "content": doc.get("content", "") or "",
         }
 
+    @app.get("/api/documents/{doc_id}/preview")
+    async def get_document_preview(doc_id: int) -> Response:
+        """Proxy paperless's PDF preview so the editor can embed it without
+        exposing the API token to the browser."""
+        try:
+            data, content_type = await require_paperless().get_preview(doc_id)
+        except PaperlessError as e:
+            raise HTTPException(502, str(e)) from e
+        return Response(content=data, media_type=content_type)
+
+    @app.get("/api/custom_fields")
+    async def list_custom_fields_endpoint() -> dict[str, Any]:
+        """Return paperless custom fields so the editor can validate that
+        rule field names + types align with the live schema.
+        """
+        try:
+            fields = await require_paperless().list_custom_fields()
+        except PaperlessError as e:
+            raise HTTPException(502, str(e)) from e
+        return {
+            "fields": [
+                {"id": f.get("id"), "name": f.get("name"), "data_type": f.get("data_type")}
+                for f in fields
+            ]
+        }
+
     @app.get("/api/rules")
     def list_rules_endpoint() -> dict[str, Any]:
         return {"rules": list_rules(cfg.rules_dir)}
@@ -240,6 +311,60 @@ def create_app(
                 compiled, req.text, req.type, req.date_formats, None, "text",
             ))
         return {"ok": True, "error": None, "results": results}
+
+    @app.post("/api/discover")
+    async def discover_endpoint(req: DiscoverRequest) -> dict[str, Any]:
+        if not req.match:
+            return {"scanned": 0, "matching": [], "truncated_scan": False}
+        try:
+            match_re = _re.compile(req.match, _build_re_flags(""))
+        except _re.error as e:
+            raise HTTPException(400, f"invalid match regex: {e}") from e
+        exclude_re = None
+        if req.exclude:
+            try:
+                exclude_re = _re.compile(req.exclude, _build_re_flags(""))
+            except _re.error as e:
+                raise HTTPException(400, f"invalid exclude regex: {e}") from e
+
+        prefilter = req.search if req.search else _derive_prefilter(req.match)
+        client = require_paperless()
+        matching: list[dict[str, Any]] = []
+        scanned = 0
+        try:
+            async for doc in client.iter_documents(query=prefilter, page_size=50):
+                if scanned >= req.scan_limit:
+                    break
+                scanned += 1
+                text = doc.get("content", "") or ""
+                m = match_re.search(text)
+                if not m:
+                    continue
+                if exclude_re is not None and exclude_re.search(text):
+                    continue
+                start = max(0, m.start() - 30)
+                end = min(len(text), m.end() + 30)
+                snippet = text[start:end].replace("\n", " · ")
+                matching.append({
+                    "id": doc.get("id"),
+                    "title": doc.get("title", ""),
+                    "snippet": snippet,
+                    "match_start": m.start() - start,
+                    "match_end": m.end() - start,
+                    "leading_ellipsis": start > 0,
+                    "trailing_ellipsis": end < len(text),
+                })
+                if len(matching) >= req.max_matches:
+                    break
+        except PaperlessError as e:
+            raise HTTPException(502, str(e)) from e
+        return {
+            "scanned": scanned,
+            "matching": matching,
+            "truncated_scan": scanned >= req.scan_limit,
+            "prefilter": prefilter,
+            "prefilter_auto": not req.search and bool(prefilter),
+        }
 
     @app.post("/api/bootstrap")
     async def bootstrap_endpoint(req: BootstrapRequest) -> dict[str, Any]:

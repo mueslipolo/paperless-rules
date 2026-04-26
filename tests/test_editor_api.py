@@ -242,8 +242,10 @@ def test_index_served_at_root(app_client):
     assert r.headers["content-type"].startswith("text/html")
     body = r.text
     assert "paperless·rules" in body
-    assert 'id="pane-corpus"' in body
-    assert 'id="regex-tester"' in body
+    # Mock-A-style layout: three resizable panes with section cards.
+    assert 'id="workspace"' in body
+    assert 'id="card-match"' in body
+    assert 'id="card-fields"' in body
 
 
 def test_api_routes_match_under_static_mount(app_client):

@@ -1,0 +1,645 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>paperless-rules · editor (Approach B: YAML inline popover)</title>
+<style>
+  :root {
+    --bg: #f8f6f1;
+    --bg-alt: #f0ece4;
+    --bg-card: #fdfbf6;
+    --ink: #1a1a1a;
+    --ink-soft: #5c5c5c;
+    --line: #d8d3c7;
+    --accent: #2d6a8a;
+    --green: #2d8a4f;
+    --amber: #b07b1e;
+    --red: #b53939;
+    --hl-match: rgba(45, 138, 79, 0.18);
+    --hl-exclude: rgba(181, 57, 57, 0.18);
+    --hl-field: rgba(45, 106, 138, 0.16);
+    --mono: 'JetBrains Mono', 'SF Mono', Menlo, monospace;
+    --serif: 'Iowan Old Style', 'Charter', Georgia, serif;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--mono);
+    font-size: 13px;
+    line-height: 1.45;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .app {
+    display: grid;
+    grid-template-columns: 240px 1fr 380px;
+    grid-template-rows: 44px 1fr;
+    height: 100vh;
+  }
+  .topbar {
+    grid-column: 1 / 4;
+    background: var(--bg-alt);
+    border-bottom: 1px solid var(--line);
+    display: flex;
+    align-items: center;
+    padding: 0 16px;
+    gap: 16px;
+    font-size: 12px;
+  }
+  .topbar .brand {
+    font-family: var(--serif);
+    font-size: 16px;
+    font-weight: 600;
+  }
+  .topbar .brand small {
+    color: var(--ink-soft);
+    font-family: var(--mono);
+    font-size: 11px;
+    margin-left: 6px;
+    font-weight: 400;
+  }
+  .topbar .crumbs { color: var(--ink-soft); }
+  .topbar .crumbs b { color: var(--ink); font-weight: 600; }
+  .topbar .spacer { flex: 1; }
+  .topbar .pill {
+    font-size: 10px;
+    padding: 2px 8px;
+    border-radius: 10px;
+    background: var(--green);
+    color: #fff;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .topbar button {
+    background: var(--bg-card);
+    border: 1px solid var(--line);
+    color: var(--ink);
+    font-family: var(--mono);
+    font-size: 11px;
+    padding: 4px 10px;
+    border-radius: 3px;
+    cursor: pointer;
+  }
+  .topbar button.primary {
+    background: var(--accent);
+    color: #fff;
+    border-color: var(--accent);
+  }
+
+  .pane-left {
+    background: var(--bg-alt);
+    border-right: 1px solid var(--line);
+    overflow-y: auto;
+    padding: 12px 0;
+  }
+  .pane-section {
+    padding: 4px 14px;
+    color: var(--ink-soft);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    margin-top: 12px;
+    margin-bottom: 4px;
+  }
+  .rule-item, .doc-item {
+    padding: 7px 14px;
+    cursor: pointer;
+    border-left: 2px solid transparent;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+  }
+  .rule-item:hover, .doc-item:hover { background: rgba(0,0,0,0.03); }
+  .rule-item.active, .doc-item.active {
+    background: var(--bg-card);
+    border-left-color: var(--accent);
+  }
+  .rule-item .dot, .doc-item .dot {
+    width: 7px; height: 7px; border-radius: 50%;
+    background: var(--green);
+    flex-shrink: 0;
+  }
+
+  /* center pane: interactive YAML editor */
+  .pane-center {
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    background: var(--bg);
+  }
+  .center-head {
+    padding: 10px 18px;
+    border-bottom: 1px solid var(--line);
+    background: var(--bg-alt);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-size: 11px;
+    color: var(--ink-soft);
+  }
+  .center-head .key {
+    background: var(--bg-card);
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    padding: 1px 5px;
+    font-size: 10px;
+  }
+  .legend {
+    display: flex;
+    gap: 14px;
+    margin-left: auto;
+    font-size: 10px;
+  }
+  .legend span {
+    display: inline-flex; align-items: center; gap: 5px;
+  }
+  .legend .sw {
+    width: 10px; height: 10px; border-radius: 2px;
+    border: 1px solid var(--line);
+  }
+
+  .yaml-doc {
+    flex: 1;
+    overflow-y: auto;
+    padding: 24px 32px;
+    font-family: var(--mono);
+    font-size: 13px;
+    line-height: 1.7;
+    background: var(--bg-card);
+  }
+  .yline {
+    white-space: pre;
+    display: block;
+    padding: 1px 6px;
+    border-radius: 3px;
+    position: relative;
+  }
+  .yline.section {
+    margin-top: 6px;
+    color: var(--ink-soft);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+  }
+  .ykey { color: #6b3a8a; }
+  .ystring { color: #1a1a1a; }
+  .ycomment { color: var(--ink-soft); font-style: italic; }
+  .ynum { color: #2d6a8a; }
+
+  /* clickable regex/value pills */
+  .chip {
+    display: inline-block;
+    padding: 1px 6px;
+    border-radius: 3px;
+    cursor: pointer;
+    border: 1px dashed transparent;
+    background: var(--hl-field);
+    transition: all 0.1s;
+  }
+  .chip:hover {
+    border-color: var(--accent);
+    filter: brightness(0.97);
+  }
+  .chip.match    { background: var(--hl-match); }
+  .chip.exclude  { background: var(--hl-exclude); }
+  .chip.value    { background: rgba(176, 123, 30, 0.18); }
+  .chip.template { background: rgba(107, 58, 138, 0.16); }
+  .chip.active {
+    border: 1px solid var(--accent);
+    box-shadow: 0 0 0 2px rgba(45, 106, 138, 0.18);
+  }
+  .chip-status {
+    font-size: 10px;
+    margin-left: 6px;
+    color: var(--ink-soft);
+  }
+  .chip-status.ok { color: var(--green); }
+  .chip-status.warn { color: var(--amber); }
+  .chip-status.err { color: var(--red); }
+
+  /* popover (the inline tester) */
+  .pop {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    margin-top: 4px;
+    width: 540px;
+    background: #fff;
+    border: 1px solid var(--accent);
+    border-radius: 6px;
+    box-shadow: 0 12px 30px rgba(0,0,0,0.18);
+    padding: 14px;
+    z-index: 50;
+    font-size: 12px;
+    line-height: 1.5;
+  }
+  .pop::before {
+    content: '';
+    position: absolute;
+    top: -7px; left: 14px;
+    border: 6px solid transparent;
+    border-bottom-color: var(--accent);
+    border-top: 0;
+  }
+  .pop h4 {
+    margin: 0 0 8px 0;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    color: var(--ink-soft);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .pop h4 .scope-tag {
+    background: var(--accent);
+    color: #fff;
+    padding: 1px 6px;
+    border-radius: 2px;
+    font-size: 10px;
+    letter-spacing: 0.4px;
+  }
+  .pop input.regex-input {
+    width: 100%;
+    font-family: var(--mono);
+    font-size: 13px;
+    padding: 7px 9px;
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    background: var(--bg);
+  }
+  .pop input.regex-input:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+  .pop .row {
+    display: flex;
+    gap: 10px;
+    margin-top: 8px;
+    align-items: center;
+  }
+  .pop .preview {
+    margin-top: 10px;
+    padding: 10px;
+    background: var(--bg);
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    max-height: 140px;
+    overflow-y: auto;
+    font-size: 12px;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .pop .preview mark {
+    background: rgba(45, 138, 79, 0.35);
+    padding: 0 2px;
+    border-radius: 2px;
+  }
+  .pop .preview mark.exclude { background: rgba(181, 57, 57, 0.35); }
+  .pop .meta {
+    font-size: 11px;
+    color: var(--ink-soft);
+    margin-top: 8px;
+    display: flex;
+    justify-content: space-between;
+  }
+  .pop .meta b { color: var(--ink); }
+  .pop .footer {
+    margin-top: 12px;
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+  }
+  .pop button {
+    background: var(--bg);
+    border: 1px solid var(--line);
+    padding: 4px 10px;
+    border-radius: 3px;
+    cursor: pointer;
+    font-family: var(--mono);
+    font-size: 11px;
+  }
+  .pop button.primary {
+    background: var(--accent);
+    color: #fff;
+    border-color: var(--accent);
+  }
+  .pop button.danger {
+    color: var(--red);
+    border-color: var(--red);
+  }
+
+  /* right pane: results */
+  .pane-right {
+    background: var(--bg-alt);
+    border-left: 1px solid var(--line);
+    overflow-y: auto;
+    padding: 14px 16px;
+  }
+  .pane-right h3 {
+    margin: 0 0 10px 0;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    color: var(--ink-soft);
+  }
+  .outcome {
+    background: var(--bg-card);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 10px 12px;
+    margin-bottom: 10px;
+  }
+  .outcome .name {
+    font-size: 11px;
+    color: var(--ink-soft);
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+  }
+  .outcome .val {
+    font-size: 13px;
+    margin-top: 2px;
+    word-break: break-word;
+  }
+  .outcome.err .val { color: var(--red); }
+  .outcome.warn .val { color: var(--amber); }
+
+  .doc-snippet {
+    background: var(--bg-card);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 10px 12px;
+    font-size: 11px;
+    line-height: 1.55;
+    max-height: 180px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+  }
+  .doc-snippet mark {
+    background: rgba(45, 138, 79, 0.32);
+    padding: 0 2px;
+    border-radius: 2px;
+  }
+  .doc-snippet mark.exclude { background: rgba(181, 57, 57, 0.32); }
+  .doc-snippet mark.field   { background: rgba(45, 106, 138, 0.30); }
+
+  .hint {
+    background: var(--bg-card);
+    border: 1px solid var(--line);
+    border-left: 3px solid var(--accent);
+    padding: 10px 12px;
+    margin-top: 12px;
+    font-size: 11px;
+    color: var(--ink-soft);
+    border-radius: 3px;
+  }
+  .hint b { color: var(--ink); }
+
+</style>
+</head>
+<body>
+<div class="app">
+
+  <div class="topbar">
+    <div class="brand">paperless-rules <small>· approach B · YAML inline</small></div>
+    <div class="crumbs">rule: <b>01_acme.yml</b></div>
+    <span class="pill">saved</span>
+    <div class="spacer"></div>
+    <button>preview</button>
+    <button class="primary">apply</button>
+  </div>
+
+  <aside class="pane-left">
+    <div class="pane-section">rules</div>
+    <div class="rule-item active"><span class="dot"></span><span>01_acme.yml</span></div>
+    <div class="rule-item"><span class="dot"></span><span>02_telecom.yml</span></div>
+    <div class="rule-item"><span class="dot" style="background:var(--amber)"></span><span>03_utility.yml</span></div>
+    <div class="pane-section">documents</div>
+    <div class="doc-item active"><span class="dot"></span><span>Acme Invoice 4521</span></div>
+    <div class="doc-item"><span class="dot"></span><span>Acme Invoice 4522</span></div>
+    <div class="doc-item"><span class="dot"></span><span>Other utility bill</span></div>
+  </aside>
+
+  <main class="pane-center">
+    <div class="center-head">
+      <span>YAML editor — click any <b>regex</b> or <b>value</b> to test it inline</span>
+      <div class="legend">
+        <span><span class="sw" style="background: var(--hl-match)"></span> match</span>
+        <span><span class="sw" style="background: var(--hl-exclude)"></span> exclude</span>
+        <span><span class="sw" style="background: var(--hl-field)"></span> field regex</span>
+        <span><span class="sw" style="background: rgba(176, 123, 30, 0.18)"></span> value</span>
+        <span><span class="sw" style="background: rgba(107, 58, 138, 0.16)"></span> template</span>
+      </div>
+    </div>
+    <div class="yaml-doc" id="yamldoc">
+<span class="yline section"># rule: detects an Acme invoice and extracts metadata</span>
+<span class="yline"><span class="ykey">match</span>: <span class="chip match" data-pop="match">Acme</span><span class="chip-status ok">3 matches</span></span>
+<span class="yline"><span class="ykey">exclude</span>: <span class="chip exclude" data-pop="exclude">DRAFT|Quote</span><span class="chip-status ok">no matches</span></span>
+<span class="yline"></span>
+<span class="yline section"># fields ─ reserved names (correspondent/document_type/tags/title) → built-ins, rest → custom_fields</span>
+<span class="yline"><span class="ykey">fields</span>:</span>
+<span class="yline">  <span class="ykey">correspondent</span>:</span>
+<span class="yline">    <span class="ykey">value</span>: <span class="chip value" data-pop="correspondent">Acme Télécom (Europe) SARL</span></span>
+<span class="yline">  <span class="ykey">document_type</span>:</span>
+<span class="yline">    <span class="ykey">value</span>: <span class="chip value" data-pop="document_type">Invoice</span></span>
+<span class="yline">  <span class="ykey">tags</span>:</span>
+<span class="yline">    <span class="ykey">value</span>: <span class="chip value" data-pop="tags">[telecom, monthly]</span></span>
+<span class="yline">  <span class="ykey">amount</span>:</span>
+<span class="yline">    <span class="ykey">regex</span>: <span class="chip" data-pop="amount">Total à payer\s+EUR\s+([\d ,]+)</span><span class="chip-status ok">→ "1 234,50"</span></span>
+<span class="yline">    <span class="ykey">type</span>: <span class="ynum">float</span></span>
+<span class="yline">  <span class="ykey">invoice_number</span>:</span>
+<span class="yline">    <span class="ykey">regex</span>: <span class="chip" data-pop="invoice_number">Numéro de facture\s+(\d+)</span><span class="chip-status ok">→ "4521"</span></span>
+<span class="yline">  <span class="ykey">date</span>:</span>
+<span class="yline">    <span class="ykey">regex</span>: <span class="chip" data-pop="date">Date d.émission\s+(\d{2}\.\d{2}\.\d{4})</span><span class="chip-status ok">→ "15.03.2024"</span></span>
+<span class="yline">    <span class="ykey">type</span>: <span class="ynum">date</span></span>
+<span class="yline">  <span class="ykey">title</span>:</span>
+<span class="yline">    <span class="ykey">template</span>: <span class="chip template" data-pop="title">Acme {invoice_number} — {date}</span><span class="chip-status ok">→ "Acme 4521 — 2024-03-15"</span></span>
+<span class="yline"></span>
+<span class="yline"><span class="ykey">required</span>: [amount, date]</span>
+<span class="yline"><span class="ykey">options</span>:</span>
+<span class="yline">  <span class="ykey">currency</span>: EUR</span>
+<span class="yline">  <span class="ykey">date_formats</span>: [<span class="ystring">'%d.%m.%Y'</span>]</span>
+    </div>
+  </main>
+
+  <aside class="pane-right">
+    <h3>Live preview · doc #4521</h3>
+    <div class="outcome">
+      <div class="name">title</div>
+      <div class="val">Acme 4521 — 2024-03-15</div>
+    </div>
+    <div class="outcome">
+      <div class="name">correspondent</div>
+      <div class="val">Acme Télécom (Europe) SARL</div>
+    </div>
+    <div class="outcome">
+      <div class="name">document_type</div>
+      <div class="val">Invoice</div>
+    </div>
+    <div class="outcome">
+      <div class="name">tags</div>
+      <div class="val">telecom, monthly</div>
+    </div>
+    <div class="outcome">
+      <div class="name">custom: amount (float)</div>
+      <div class="val">1234.50 EUR</div>
+    </div>
+    <div class="outcome">
+      <div class="name">custom: invoice_number</div>
+      <div class="val">4521</div>
+    </div>
+    <div class="outcome">
+      <div class="name">custom: date</div>
+      <div class="val">2024-03-15</div>
+    </div>
+
+    <h3 style="margin-top:18px">document text (excerpt)</h3>
+    <div class="doc-snippet" id="snippet">FACTURE
+<mark>Acme</mark> Télécom (Europe) SARL
+Numéro de facture <mark class="field">4521</mark>
+Date d'émission <mark class="field">15.03.2024</mark>
+Période: mars 2024
+Total à payer EUR <mark class="field">1 234,50</mark>
+Conditions: paiement à 30 jours.</div>
+
+    <div class="hint">
+      <b>Idea:</b> the YAML <i>is</i> the form. Click any regex or value to open a tester anchored to that exact line. No "apply to" dropdown — the location of the chip already tells the tester what scope it operates on (match / exclude / field name / template).
+    </div>
+  </aside>
+
+</div>
+
+<!-- popover (single instance, repositioned on click) -->
+<div class="pop" id="pop" style="display:none">
+  <h4>tester · <span class="scope-tag" id="popScope">match</span><span style="margin-left:auto;font-weight:400;color:var(--ink-soft)" id="popHint">3 matches in document</span></h4>
+  <input class="regex-input" id="popInput" />
+  <div class="row" style="margin-top:6px;font-size:11px;color:var(--ink-soft)" id="popType"></div>
+  <div class="preview" id="popPreview"></div>
+  <div class="meta">
+    <span>scope: <b id="popScopeLabel">match</b></span>
+    <span id="popResult">3 matches</span>
+  </div>
+  <div class="footer">
+    <button class="danger">remove field</button>
+    <span style="flex:1"></span>
+    <button>cancel</button>
+    <button class="primary">save</button>
+  </div>
+</div>
+
+<script>
+  const SAMPLE = `FACTURE\nAcme Télécom (Europe) SARL\nNuméro de facture 4521\nDate d'émission 15.03.2024\nPériode: mars 2024\nTotal à payer EUR 1 234,50\nConditions: paiement à 30 jours.`;
+
+  const SCOPE_LABELS = {
+    'match':         { label: 'match',         hint: 'document is processed when this matches' },
+    'exclude':       { label: 'exclude',       hint: 'document is skipped when this matches' },
+    'correspondent': { label: 'field: correspondent (built-in)', hint: 'literal value, no regex' },
+    'document_type': { label: 'field: document_type (built-in)', hint: 'literal value, no regex' },
+    'tags':          { label: 'field: tags (built-in)',           hint: 'list of literal tags' },
+    'amount':        { label: 'field: amount (custom, float)',    hint: 'first capture group → number' },
+    'invoice_number':{ label: 'field: invoice_number (custom)',   hint: 'first capture group → string' },
+    'date':          { label: 'field: date (custom, date)',       hint: 'first capture group → date' },
+    'title':         { label: 'field: title (built-in, template)',hint: 'placeholders {name} get substituted' },
+  };
+
+  const pop = document.getElementById('pop');
+  const popInput = document.getElementById('popInput');
+  const popScope = document.getElementById('popScope');
+  const popScopeLabel = document.getElementById('popScopeLabel');
+  const popHint = document.getElementById('popHint');
+  const popPreview = document.getElementById('popPreview');
+  const popResult = document.getElementById('popResult');
+
+  let activeChip = null;
+
+  function escapeHtml(s) {
+    return s.replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+  }
+
+  function renderPreview(scope, pattern) {
+    if (scope === 'correspondent' || scope === 'document_type' || scope === 'tags') {
+      popPreview.innerHTML = '<i style="color:var(--ink-soft)">Literal value — no regex applied. Saved as-is on every matching document.</i>';
+      popResult.textContent = '—';
+      return;
+    }
+    if (scope === 'title') {
+      const names = ['invoice_number','date','amount','correspondent','document_type'];
+      let preview = pattern;
+      const refs = (pattern.match(/\{([a-z_]+)\}/g) || []).map(m => m.slice(1,-1));
+      const unknown = refs.filter(r => !names.includes(r));
+      preview = pattern
+        .replace('{invoice_number}', '<mark>4521</mark>')
+        .replace('{date}', '<mark>2024-03-15</mark>')
+        .replace('{amount}', '<mark>1234.50</mark>');
+      popPreview.innerHTML = preview;
+      popResult.innerHTML = unknown.length
+        ? `<span style="color:var(--red)">unknown: ${unknown.join(', ')}</span>`
+        : `<span style="color:var(--green)">${refs.length} placeholder${refs.length===1?'':'s'} resolved</span>`;
+      return;
+    }
+    try {
+      const re = new RegExp(pattern, 'g');
+      const matches = [...SAMPLE.matchAll(re)];
+      const cls = scope === 'exclude' ? 'exclude' : '';
+      const parts = []; let last = 0;
+      for (const m of matches) {
+        parts.push(escapeHtml(SAMPLE.slice(last, m.index)));
+        parts.push(`<mark class="${cls}">${escapeHtml(m[0])}</mark>`);
+        last = m.index + m[0].length;
+      }
+      parts.push(escapeHtml(SAMPLE.slice(last)));
+      popPreview.innerHTML = parts.join('');
+      const captures = matches.map(m => m[1]).filter(Boolean);
+      popResult.innerHTML = matches.length
+        ? `<span style="color:var(--green)">${matches.length} match${matches.length===1?'':'es'}${captures.length?' · capture: <b>'+escapeHtml(captures[0])+'</b>':''}</span>`
+        : `<span style="color:var(--red)">no match</span>`;
+    } catch (e) {
+      popPreview.innerHTML = '<i style="color:var(--red)">invalid regex: '+escapeHtml(e.message)+'</i>';
+      popResult.innerHTML = '<span style="color:var(--red)">error</span>';
+    }
+  }
+
+  function openPop(chip) {
+    if (activeChip) activeChip.classList.remove('active');
+    activeChip = chip;
+    chip.classList.add('active');
+    const scope = chip.dataset.pop;
+    const meta = SCOPE_LABELS[scope] || { label: scope, hint: '' };
+    popScope.textContent = scope;
+    popScopeLabel.textContent = meta.label;
+    popHint.textContent = meta.hint;
+    popInput.value = chip.textContent;
+    renderPreview(scope, popInput.value);
+    chip.parentElement.appendChild(pop);
+    pop.style.display = 'block';
+    popInput.focus();
+    popInput.select();
+  }
+
+  document.querySelectorAll('.chip').forEach(c => {
+    c.addEventListener('click', e => { e.stopPropagation(); openPop(c); });
+  });
+
+  popInput.addEventListener('input', () => {
+    if (activeChip) renderPreview(activeChip.dataset.pop, popInput.value);
+  });
+
+  document.addEventListener('click', (e) => {
+    if (pop.contains(e.target) || (activeChip && activeChip.contains(e.target))) return;
+    pop.style.display = 'none';
+    if (activeChip) activeChip.classList.remove('active');
+    activeChip = null;
+  });
+
+  // open one by default to show the idea
+  setTimeout(() => {
+    const first = document.querySelector('[data-pop="amount"]');
+    if (first) openPop(first);
+  }, 200);
+</script>
+</body>
+</html>

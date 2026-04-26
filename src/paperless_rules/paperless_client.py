@@ -98,6 +98,23 @@ class PaperlessClient:
         """Full document record including OCR `content` field."""
         return await self._get_json(f"/api/documents/{doc_id}/")
 
+    async def get_preview(self, doc_id: int) -> tuple[bytes, str]:
+        """Fetch the document's PDF preview as raw bytes + content-type.
+
+        paperless exposes /api/documents/{id}/preview/ which serves the
+        renderable PDF (the original or a generated preview). Used by the
+        editor to embed the document in a viewer alongside the OCR text.
+        """
+        try:
+            r = await self._client.get(f"/api/documents/{doc_id}/preview/")
+        except httpx.HTTPError as e:
+            raise PaperlessError(f"GET preview failed: {e}") from e
+        if r.status_code >= 400:
+            raise PaperlessError(
+                f"GET /api/documents/{doc_id}/preview/ HTTP {r.status_code}"
+            )
+        return r.content, r.headers.get("content-type", "application/pdf")
+
     async def iter_documents(
         self,
         query: str = "",
