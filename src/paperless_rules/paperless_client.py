@@ -36,18 +36,25 @@ class PaperlessClient:
         *,
         timeout: float = 15.0,
         transport: httpx.AsyncBaseTransport | None = None,
+        verify: bool | str = True,
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.token = token
-        self._client = httpx.AsyncClient(
-            base_url=self.base_url,
-            headers={
+        # `verify` accepts True / False / a CA-bundle path. Passed through
+        # unchanged to httpx so users on self-signed LAN paperless can opt
+        # into either skipping verification or pinning to a local CA.
+        kwargs: dict[str, Any] = {
+            "base_url": self.base_url,
+            "headers": {
                 "Authorization": f"Token {token}",
                 "Accept": "application/json; version=2",
             },
-            timeout=timeout,
-            transport=transport,
-        )
+            "timeout": timeout,
+            "verify": verify,
+        }
+        if transport is not None:
+            kwargs["transport"] = transport
+        self._client = httpx.AsyncClient(**kwargs)
 
     async def aclose(self) -> None:
         await self._client.aclose()

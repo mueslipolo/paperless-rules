@@ -103,7 +103,7 @@ def create_app(
     @asynccontextmanager
     async def lifespan(app: FastAPI):  # noqa: ARG001
         if state.paperless is None and cfg.paperless_url and cfg.paperless_token:
-            state.paperless = PaperlessClient(cfg.paperless_url, cfg.paperless_token)
+            state.paperless = PaperlessClient(cfg.paperless_url, cfg.paperless_token, verify=cfg.httpx_verify)
             state.owns_client = True
         try:
             yield

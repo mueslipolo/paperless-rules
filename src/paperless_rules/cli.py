@@ -36,6 +36,16 @@ def _setup_logging() -> None:
     )
 
 
+def _load_dotenv_if_present() -> None:
+    """Best-effort load of `.env` from the current directory. Existing
+    environment variables always win — only fills in unset vars."""
+    try:
+        from dotenv import load_dotenv
+    except ImportError:
+        return
+    load_dotenv(override=False)
+
+
 def _run_editor(cfg: Config) -> int:
     import uvicorn
 
@@ -51,7 +61,7 @@ def _run_editor(cfg: Config) -> int:
 
 async def _run_apply(cfg: Config, doc_id: int, *, dry_run: bool) -> int:
     rules = load_rules(cfg.rules_dir)
-    async with PaperlessClient(cfg.paperless_url, cfg.paperless_token) as client:
+    async with PaperlessClient(cfg.paperless_url, cfg.paperless_token, verify=cfg.httpx_verify) as client:
         result = await apply_rules_to_document(
             client, doc_id, rules, dry_run=dry_run
         )
@@ -83,7 +93,7 @@ async def _run_backfill(cfg: Config, *, query: str, dry_run: bool) -> int:
     matched = 0
     unmatched = 0
     errors = 0
-    async with PaperlessClient(cfg.paperless_url, cfg.paperless_token) as client:
+    async with PaperlessClient(cfg.paperless_url, cfg.paperless_token, verify=cfg.httpx_verify) as client:
         async for doc in client.iter_documents(query=query):
             result = await apply_rules_to_document(
                 client, doc["id"], rules, dry_run=dry_run, cache=cache
@@ -181,6 +191,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     _setup_logging()
+    _load_dotenv_if_present()
     args = _build_parser().parse_args(argv)
     cfg = Config.from_env()
 

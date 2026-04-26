@@ -90,7 +90,7 @@ async def run(config: Config | None = None, *, max_iterations: int | None = None
             pass
 
     iterations = 0
-    async with PaperlessClient(cfg.paperless_url, cfg.paperless_token) as client:
+    async with PaperlessClient(cfg.paperless_url, cfg.paperless_token, verify=cfg.httpx_verify) as client:
         cache = ResolutionCache()
         while not stop.is_set():
             try:
