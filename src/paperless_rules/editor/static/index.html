@@ -128,15 +128,21 @@ input:focus, textarea:focus, select:focus { outline: none; border-color: var(--i
 .preset:hover { background: var(--bg-alt); border-color: var(--ink); }
 
 #pane-middle {
-  background: var(--bg); display: grid;
-  grid-template-rows: var(--ocr-h, 1fr) auto auto auto;
+  background: var(--bg); display: flex; flex-direction: column;
   min-height: 0;
 }
 .splitter {
-  height: 5px; background: var(--line); cursor: ns-resize; user-select: none;
+  flex: 0 0 5px; background: var(--line); cursor: ns-resize; user-select: none;
 }
 .splitter:hover, .splitter.dragging { background: var(--ink-soft); }
-#ocr-section { display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+#ocr-section {
+  flex: 1 1 0; min-height: 80px;
+  display: flex; flex-direction: column; overflow: hidden;
+}
+#lower-stack {
+  flex: 0 0 var(--lower-h, auto); min-height: 0;
+  display: flex; flex-direction: column; overflow: hidden;
+}
 #ocr-content {
   flex: 1; overflow: auto; padding: 12px 16px;
   white-space: pre-wrap; word-break: break-word; font-size: 12px;
@@ -313,6 +319,7 @@ input:focus, textarea:focus, select:focus { outline: none; border-color: var(--i
 
     <div class="splitter" id="splitter-ocr" title="drag to resize"></div>
 
+    <div id="lower-stack">
     <section id="regex-tester">
       <div class="pattern-row">
         <span class="slash">/</span>
@@ -366,6 +373,7 @@ input:focus, textarea:focus, select:focus { outline: none; border-color: var(--i
       </div>
       <textarea id="yaml-editor" spellcheck="false" wrap="off"></textarea>
     </section>
+    </div>
   </main>
 
   <aside id="pane-results">
@@ -1034,13 +1042,18 @@ function markDirty() {
 }
 
 function setupSplitter() {
+  // The OCR section is `flex: 1 1 0` and absorbs leftover space; the lower
+  // stack (regex tester + YAML drawer) gets a fixed height set via
+  // `--lower-h`. Dragging the splitter writes that variable. The cursor's
+  // distance from the bottom of the pane is the lower stack's height —
+  // moving the splitter up grows the lower stack, down shrinks it.
   const splitter = $("#splitter-ocr");
   if (!splitter) return;
   const pane = $("#pane-middle");
   const onMove = e => {
     const r = pane.getBoundingClientRect();
-    const h = Math.max(80, Math.min(r.height - 220, e.clientY - r.top));
-    pane.style.setProperty("--ocr-h", h + "px");
+    const lower = Math.max(120, Math.min(r.height - 80, r.bottom - e.clientY));
+    pane.style.setProperty("--lower-h", lower + "px");
   };
   const onUp = () => {
     splitter.classList.remove("dragging");
