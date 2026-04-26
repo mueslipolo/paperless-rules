@@ -93,7 +93,15 @@ input:focus, textarea:focus, select:focus { outline: none; border-color: var(--i
 }
 .preset:hover { background: var(--bg-alt); border-color: var(--ink); }
 
-#pane-middle { background: var(--bg); display: grid; grid-template-rows: 1fr auto auto; }
+#pane-middle {
+  background: var(--bg); display: grid;
+  grid-template-rows: var(--ocr-h, 1fr) auto auto auto;
+  min-height: 0;
+}
+.splitter {
+  height: 5px; background: var(--line); cursor: ns-resize; user-select: none;
+}
+.splitter:hover, .splitter.dragging { background: var(--ink-soft); }
 #ocr-section { display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
 #ocr-content {
   flex: 1; overflow: auto; padding: 12px 16px;
@@ -226,6 +234,8 @@ input:focus, textarea:focus, select:focus { outline: none; border-color: var(--i
       </div>
       <pre id="ocr-content"></pre>
     </section>
+
+    <div class="splitter" id="splitter-ocr" title="drag to resize"></div>
 
     <section id="regex-tester">
       <div class="pattern-row">
@@ -790,7 +800,33 @@ function generateRuleFromBootstrap() {
   $("#bootstrap-modal").hidden = true;
 }
 
+function setupSplitter() {
+  // Drag-to-resize the OCR pane vs everything below it. Stores the height
+  // on `--ocr-h` so the grid template picks it up; clamped to leave room
+  // for the regex tester and YAML drawer toolbars.
+  const splitter = $("#splitter-ocr");
+  if (!splitter) return;
+  const pane = $("#pane-middle");
+  const onMove = e => {
+    const r = pane.getBoundingClientRect();
+    const h = Math.max(80, Math.min(r.height - 220, e.clientY - r.top));
+    pane.style.setProperty("--ocr-h", h + "px");
+  };
+  const onUp = () => {
+    splitter.classList.remove("dragging");
+    document.removeEventListener("mousemove", onMove);
+    document.removeEventListener("mouseup", onUp);
+  };
+  splitter.addEventListener("mousedown", e => {
+    e.preventDefault();
+    splitter.classList.add("dragging");
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+  });
+}
+
 function wire() {
+  setupSplitter();
   $("#search-box").addEventListener("input", debounce(e => loadDocs(e.target.value), 250));
   $("#doc-list").addEventListener("click", async e => {
     if (e.target.matches("input[data-corpus]")) {
