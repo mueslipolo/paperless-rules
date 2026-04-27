@@ -106,9 +106,38 @@ cd /volume1/docker/paperless
 sudo docker compose up -d paperless-rules
 ```
 
-**6. Open the editor** at `http://<nas-ip>:8765`. Reach it from outside the LAN by adding it to your existing Synology reverse proxy (Control Panel → Login Portal → Reverse Proxy) the same way you proxy paperless itself.
+**6. Open the editor** at `http://<nas-ip>:8765`. On first visit you'll be asked for a paperless API token — see *Authentication* below.
 
-The default `127.0.0.1:8765:8765` binding in the compose example would restrict access to localhost only — on a Synology you usually want LAN access, so use `8765:8765` as shown above.
+#### Behind DSM reverse proxy with HTTPS (recommended)
+
+When the editor isn't strictly LAN-only, terminate TLS at DSM and keep the container's port localhost-only:
+
+1. **Localhost-only bind** in the compose snippet (replace `8765:8765` with):
+
+   ```yaml
+   ports:
+     - "127.0.0.1:8765:8765"
+   environment:
+     EDITOR_AUTH_REQUIRED: "true"   # default; documented for clarity
+   ```
+
+2. **Add the proxy entry**: *Control Panel → Login Portal → Advanced → Reverse Proxy → Create*
+   - Source: HTTPS · `rules.your-syno.lan` · 443
+   - Destination: HTTP · `localhost` · 8765
+   - Custom header → "WebSocket": *enabled* (lets PDF.js stream cleanly)
+   - HSTS, HTTP/2: enabled
+
+3. **Issue a TLS cert** for that hostname: *Control Panel → Security → Certificate*. Let's Encrypt over DNS-01 if you have a public domain; otherwise import a self-signed cert via the same UI.
+
+4. Visit `https://rules.your-syno.lan` — you'll get the editor's login screen, paste the paperless token from step 4 of the install, and you're in.
+
+### Authentication
+
+The editor uses **paperless's own API token as the login credential** — there's no separate password to manage. On first load it asks you to paste a token; the editor verifies it by calling paperless's `/api/users/me/`. Revoking the token in paperless logs you out.
+
+- Mint a token at `https://<your-paperless>/profile/` → "API Auth Tokens".
+- The token is stored in your browser's `localStorage` only — never on the server.
+- Set `EDITOR_AUTH_REQUIRED=false` to disable the gate (only safe on a strictly trusted LAN; the README's reverse-proxy mode does the right thing by default).
 
 ### Generic Docker Compose
 

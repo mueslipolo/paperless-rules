@@ -8,13 +8,14 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.responses import Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from paperless_rules import bootstrap as bootstrap_module
 from paperless_rules.config import Config
+from paperless_rules.editor.auth import make_auth_dep
 from paperless_rules.engine import coerce_value, extract_with_rule
 from paperless_rules.paperless_client import PaperlessClient, PaperlessError
 from paperless_rules.rules_io import (
@@ -159,6 +160,9 @@ def create_app(
 
     app = FastAPI(title="paperless-rules", version=__APP_VERSION__, lifespan=lifespan)
 
+    auth_dep = make_auth_dep(state, required=cfg.editor_auth_required)
+    auth = [Depends(auth_dep)]
+
     def require_paperless() -> PaperlessClient:
         if state.paperless is None:
             raise HTTPException(503, "paperless not configured")
@@ -174,9 +178,10 @@ def create_app(
             "app": {"name": "paperless-rules", "version": __APP_VERSION__},
             "rules_dir": str(cfg.rules_dir),
             "paperless": ps,
+            "auth_required": cfg.editor_auth_required,
         }
 
-    @app.get("/api/documents")
+    @app.get("/api/documents", dependencies=auth)
     async def list_documents_endpoint(
         query: str = Query(""),
         page: int = Query(1, ge=1),
@@ -189,7 +194,7 @@ def create_app(
         except PaperlessError as e:
             raise HTTPException(502, str(e)) from e
 
-    @app.get("/api/documents/{doc_id}/text")
+    @app.get("/api/documents/{doc_id}/text", dependencies=auth)
     async def get_document_text(doc_id: int) -> dict[str, Any]:
         try:
             doc = await require_paperless().get_document(doc_id)
@@ -202,7 +207,7 @@ def create_app(
             "content": doc.get("content", "") or "",
         }
 
-    @app.get("/api/documents/{doc_id}/preview")
+    @app.get("/api/documents/{doc_id}/preview", dependencies=auth)
     async def get_document_preview(doc_id: int) -> Response:
         """Proxy paperless's PDF preview so the editor can embed it without
         exposing the API token to the browser."""
@@ -212,7 +217,7 @@ def create_app(
             raise HTTPException(502, str(e)) from e
         return Response(content=data, media_type=content_type)
 
-    @app.get("/api/custom_fields")
+    @app.get("/api/custom_fields", dependencies=auth)
     async def list_custom_fields_endpoint() -> dict[str, Any]:
         """Return paperless custom fields so the editor can validate that
         rule field names + types align with the live schema.
@@ -228,18 +233,18 @@ def create_app(
             ]
         }
 
-    @app.get("/api/rules")
+    @app.get("/api/rules", dependencies=auth)
     def list_rules_endpoint() -> dict[str, Any]:
         return {"rules": list_rules(cfg.rules_dir)}
 
-    @app.get("/api/rules/{filename}")
+    @app.get("/api/rules/{filename}", dependencies=auth)
     def get_rule_endpoint(filename: str) -> dict[str, Any]:
         try:
             return {"filename": filename, "yaml": read_rule(cfg.rules_dir, filename)}
         except RulesIOError as e:
             raise HTTPException(404, str(e)) from e
 
-    @app.post("/api/rules")
+    @app.post("/api/rules", dependencies=auth)
     def save_rule_endpoint(req: RuleSaveRequest) -> dict[str, Any]:
         try:
             write_rule(cfg.rules_dir, req.filename, req.yaml)
@@ -247,7 +252,7 @@ def create_app(
             raise HTTPException(400, str(e)) from e
         return {"ok": True, "filename": req.filename}
 
-    @app.delete("/api/rules/{filename}")
+    @app.delete("/api/rules/{filename}", dependencies=auth)
     def delete_rule_endpoint(filename: str) -> dict[str, Any]:
         try:
             removed = delete_rule(cfg.rules_dir, filename)
@@ -255,7 +260,7 @@ def create_app(
             raise HTTPException(400, str(e)) from e
         return {"ok": True, "removed": removed}
 
-    @app.post("/api/test")
+    @app.post("/api/test", dependencies=auth)
     async def test_rule(req: TestRequest) -> dict[str, Any]:
         try:
             rule = yaml.safe_load(req.yaml)
@@ -279,7 +284,7 @@ def create_app(
             })
         return {"results": results}
 
-    @app.post("/api/regex/test")
+    @app.post("/api/regex/test", dependencies=auth)
     async def test_regex(req: RegexTestRequest) -> dict[str, Any]:
         if not req.doc_ids and req.text is None:
             raise HTTPException(400, "either doc_ids or text must be provided")
@@ -312,7 +317,7 @@ def create_app(
             ))
         return {"ok": True, "error": None, "results": results}
 
-    @app.post("/api/discover")
+    @app.post("/api/discover", dependencies=auth)
     async def discover_endpoint(req: DiscoverRequest) -> dict[str, Any]:
         if not req.match:
             return {"scanned": 0, "matching": [], "truncated_scan": False}
@@ -366,7 +371,7 @@ def create_app(
             "prefilter_auto": not req.search and bool(prefilter),
         }
 
-    @app.post("/api/bootstrap")
+    @app.post("/api/bootstrap", dependencies=auth)
     async def bootstrap_endpoint(req: BootstrapRequest) -> dict[str, Any]:
         try:
             doc = await require_paperless().get_document(req.doc_id)

@@ -7,7 +7,13 @@
 <style>
   :root {
     --bg: #f8f6f1; --bg-alt: #f0ece4; --bg-card: #fdfbf6;
-    --ink: #1a1a1a; --ink-soft: #5c5c5c; --line: #d8d3c7;
+    --ink: #1a1a1a; --ink-soft: #5c5c5c;
+    /* --line: decoration only (dividers, dashed separators, status pill borders).
+       --line-input: editable surfaces only (input/select/textarea borders, the
+       segmented kind-toggle wrapper, collapsed-row name preview). The visible
+       contrast between the two tells the user where to type. */
+    --line: #d8d3c7;
+    --line-input: #b9b1a0;
     --accent: #2d6a8a; --green: #2d8a4f; --amber: #b07b1e; --red: #b53939; --grey: #888;
     --mono: 'JetBrains Mono', 'SF Mono', Menlo, Consolas, monospace;
     --serif: 'Iowan Old Style', 'Charter', Palatino, Georgia, serif;
@@ -62,7 +68,7 @@
   .topbar .crumbs { color: var(--ink-soft); }
   .topbar .crumbs b { color: var(--ink); font-weight: 600; }
   .topbar input.filename {
-    background: var(--bg-card); border: 1px solid var(--line);
+    background: var(--bg-card); border: 1px solid var(--line-input);
     border-radius: 3px; padding: 3px 8px;
     font-family: var(--mono); font-size: 12px; color: var(--ink);
     min-width: 220px;
@@ -146,7 +152,7 @@
   .docs-banner b { color: var(--ink); font-weight: 600; }
   #search-box-wrap { padding: 4px 14px; }
   #search-box {
-    width: 100%; background: var(--bg-card); border: 1px solid var(--line);
+    width: 100%; background: var(--bg-card); border: 1px solid var(--line-input);
     border-radius: 3px; padding: 4px 8px; font-family: var(--mono); font-size: 11px;
   }
   #search-box:focus { outline: none; border-color: var(--accent); }
@@ -247,21 +253,49 @@
     padding-top: 6px;
   }
   .opt-row input[type=text] {
-    width: 100%; background: var(--bg); border: 1px solid var(--line);
+    width: 100%; background: var(--bg-card); border: 1px solid var(--line-input);
     border-radius: 3px; padding: 5px 8px;
     font-family: var(--mono); font-size: 12px; color: var(--ink); outline: none;
   }
   .opt-row input[type=text]:focus {
     border-color: var(--accent); box-shadow: 0 0 0 2px rgba(45,106,138,0.10);
   }
+  .opt-row.narrow input[type=text] { max-width: 120px; }
   .opt-hint {
     grid-column: 2; font-size: 10px; color: var(--ink-soft);
-    margin-top: 4px;
+    margin-top: 4px; font-style: italic;
   }
+  .opt-hint::before { content: "↳ "; font-style: normal; color: var(--line-input); }
   .opt-hint code {
-    background: var(--bg); padding: 0 4px; border-radius: 2px;
-    color: var(--accent); font-family: var(--mono);
+    background: var(--bg-card); padding: 0 4px; border-radius: 2px;
+    color: var(--accent); font-family: var(--mono); font-style: normal;
   }
+  /* token-chip list — used by date_formats and languages. Each chip
+     displays a value with an × to remove; an inline input at the end
+     accepts new entries. Reads as obviously-multivalued, no need for the
+     user to remember "comma-separated". */
+  .chip-list {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 5px;
+    background: var(--bg-card); border: 1px solid var(--line-input);
+    border-radius: 3px; padding: 4px 6px; min-height: 28px;
+  }
+  .chip-list .token {
+    display: inline-flex; align-items: center; gap: 4px;
+    background: rgba(45,106,138,0.10); color: var(--accent);
+    padding: 2px 6px; border-radius: 3px;
+    font-family: var(--mono); font-size: 11px;
+  }
+  .chip-list .token .x {
+    cursor: pointer; color: var(--ink-soft);
+    font-size: 13px; line-height: 1; padding: 0 2px;
+  }
+  .chip-list .token .x:hover { color: var(--red); }
+  .chip-list .add {
+    flex: 1; min-width: 90px; border: none; outline: none;
+    background: transparent; padding: 2px 4px;
+    font-family: var(--mono); font-size: 12px; color: var(--ink);
+  }
+  .chip-list .add::placeholder { color: var(--ink-soft); }
 
   .selection-summary .card-head {
     display: flex; align-items: center; gap: 12px;
@@ -370,7 +404,7 @@
   .card-body { padding: 12px 14px; }
 
   .regex-input {
-    width: 100%; background: var(--bg); border: 1px solid var(--line);
+    width: 100%; background: var(--bg-card); border: 1px solid var(--line-input);
     border-radius: 3px; padding: 8px 11px;
     font-family: var(--mono); font-size: 13px; color: var(--ink);
     outline: none; transition: border-color 0.1s, box-shadow 0.1s;
@@ -383,9 +417,12 @@
   .regex-input.err   { border-left: 3px solid var(--red); }
 
   .preview-line {
-    margin-top: 6px; padding: 6px 10px; background: var(--bg);
-    border-radius: 3px; font-size: 11px; color: var(--ink-soft);
-    border: 1px dashed var(--line); min-height: 24px;
+    /* Read-only echo of the input above — left-rule "quote" form so it
+       doesn't look like another input box. */
+    margin-top: 6px; padding: 4px 10px;
+    border-left: 2px solid var(--line);
+    font-size: 11px; color: var(--ink-soft);
+    min-height: 22px;
     display: flex; align-items: center; gap: 8px; overflow: hidden;
   }
   .preview-line .preview-tag {
@@ -424,18 +461,86 @@
   }
 
   .field-row {
-    display: grid;
-    grid-template-columns: 150px 76px 1fr 76px 160px 22px;
-    gap: 8px; align-items: start;
-    padding: 9px 0;
     border-bottom: 1px dashed var(--line);
     position: relative;
   }
   .field-row:last-child { border-bottom: none; }
-  .field-row .col { display: flex; flex-direction: column; gap: 4px; }
+  .field-row.expanded { background: rgba(45,106,138,0.04); }
+
+  /* collapsed summary line — designed so the user can SEE this line is
+     editable. The .fname slot is bordered like the underlying input; the
+     ✎ glyph next to the chevron makes the affordance unmistakable. */
+  .field-summary {
+    display: grid;
+    grid-template-columns: 14px 14px 1fr 48px 100px 1fr 22px;
+    gap: 10px; align-items: center;
+    padding: 7px 4px 7px 6px;
+    cursor: pointer;
+    font-size: 12px;
+  }
+  .field-summary:hover { background: rgba(0,0,0,0.025); }
+  .field-row.expanded > .field-summary { background: rgba(45,106,138,0.06); cursor: default; }
+  .field-summary .chevron {
+    background: transparent; border: none; color: var(--ink-soft);
+    cursor: pointer; padding: 0; font-size: 11px; line-height: 1;
+    transition: transform 0.12s; width: 14px; text-align: center;
+  }
+  .field-row.expanded .chevron { transform: rotate(90deg); color: var(--accent); }
+  .field-summary .edit-glyph {
+    color: var(--ink-soft); font-size: 11px; line-height: 1;
+    text-align: center; pointer-events: none; opacity: 0.55;
+  }
+  .field-summary:hover .edit-glyph { opacity: 1; color: var(--accent); }
+  .field-row.expanded .edit-glyph { opacity: 0; }     /* "now editing" → glyph fades */
+  .field-summary .fname {
+    font-weight: 600; color: var(--ink);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    /* mini "preview of the input" so the user reads the row as editable */
+    border: 1px solid var(--line-input);
+    background: var(--bg-card);
+    border-radius: 3px;
+    padding: 3px 7px;
+    font-family: var(--mono);
+  }
+  .field-row.expanded .field-summary .fname {
+    /* expanded row already has the real name input below; lighten the
+       summary version so it doesn't look duplicated. */
+    border-color: transparent; background: transparent; padding: 3px 0;
+  }
+  .field-summary .fname.reserved { color: var(--accent); }
+  .field-summary .fname.unset    { color: var(--ink-soft); font-style: italic; }
+  .field-summary .kchip {
+    /* role: kind label (re/val/tpl/adv). Reads as plain mono text in the
+       summary so it can't be confused with a clickable chip. The toggle
+     in the expanded panel below is where the user actually picks. */
+    font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px;
+    color: var(--ink-soft);
+    padding: 0; text-align: left;
+    font-variant-numeric: tabular-nums;
+  }
+  .field-summary .fsample {
+    color: var(--ink-soft); font-size: 11px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+  }
+  .field-summary .fsample b {
+    color: var(--ink); font-weight: 500;
+    background: rgba(45,138,79,0.10); padding: 0 4px; border-radius: 2px;
+  }
+  .field-summary .fsample.miss { color: var(--red); font-style: italic; }
+
+  /* expanded edit panel */
+  .field-edit {
+    display: grid;
+    grid-template-columns: 150px 76px 1fr 76px 160px 22px;
+    gap: 8px; align-items: start;
+    padding: 4px 6px 12px 28px;
+    border-top: 1px dashed rgba(45,106,138,0.18);
+  }
+  .field-edit .col { display: flex; flex-direction: column; gap: 4px; }
   .field-row input[type=text],
   .field-row select {
-    background: var(--bg); border: 1px solid var(--line);
+    background: var(--bg-card); border: 1px solid var(--line-input);
     border-radius: 3px; padding: 5px 7px;
     font-family: var(--mono); font-size: 12px; color: var(--ink);
     outline: none; width: 100%;
@@ -448,7 +553,7 @@
   .field-row input[type=text].warn  { border-left: 3px solid var(--amber); }
   .field-row input[type=text].err   { border-left: 3px solid var(--red); }
   .field-row textarea.adv-body {
-    width: 100%; background: var(--bg); border: 1px solid var(--line);
+    width: 100%; background: var(--bg-card); border: 1px solid var(--line-input);
     border-radius: 3px; padding: 6px 8px;
     font-family: var(--mono); font-size: 11px; color: var(--ink);
     outline: none; resize: vertical; min-height: 80px; line-height: 1.4;
@@ -468,14 +573,23 @@
   .field-row .name-input { font-weight: 600; }
   .field-row .name-input.reserved { color: var(--accent); }
   .field-row .kind-toggle {
-    display: inline-flex; background: var(--bg); border: 1px solid var(--line);
+    display: inline-flex; background: var(--bg-card);
+    border: 1px solid var(--line-input);
     border-radius: 3px; overflow: hidden; height: 26px;
   }
   .field-row .kind-toggle button {
-    flex: 1; background: transparent; border: none; color: var(--ink-soft);
+    flex: 1; background: rgba(45,106,138,0.04); border: none;
+    border-right: 1px solid var(--line-input);
+    color: var(--ink-soft);
     font-family: var(--mono); font-size: 10px; cursor: pointer; padding: 0 4px;
+    transition: background 0.1s, color 0.1s;
   }
-  .field-row .kind-toggle button.active { background: var(--accent); color: #fff; }
+  .field-row .kind-toggle button:last-child { border-right: none; }
+  .field-row .kind-toggle button:hover { background: rgba(45,106,138,0.10); color: var(--ink); }
+  .field-row .kind-toggle button.active {
+    background: var(--accent); color: #fff;
+    border-right-color: var(--accent);
+  }
   .field-row .row-stats {
     font-size: 10px; color: var(--ink-soft);
     margin-top: 2px; font-variant-numeric: tabular-nums; line-height: 1.3;
@@ -492,34 +606,37 @@
     background: transparent; border: none; color: var(--ink-soft);
     cursor: pointer; font-size: 14px; line-height: 22px;
     height: 26px; width: 22px; border-radius: 3px;
-    opacity: 0; transition: opacity 0.1s;
+    opacity: 0.45; transition: opacity 0.1s, background 0.1s;
   }
   .field-row:hover .delete-btn { opacity: 1; }
   .field-row .delete-btn:hover { background: rgba(181,57,57,0.10); color: var(--red); }
 
-  /* paperless validation badge — shown in the row's name column */
+  /* Status indicators — read-only signals. NEVER border (border = "click me"). */
   .pf-badge {
-    font-size: 9px; padding: 1px 5px; border-radius: 2px;
+    font-size: 10px; padding: 1px 6px; border-radius: 3px;
     font-variant-numeric: tabular-nums; white-space: nowrap;
     text-transform: uppercase; letter-spacing: 0.4px;
     align-self: flex-start; max-width: 100%;
     overflow: hidden; text-overflow: ellipsis;
+    border: none;
   }
   .pf-badge:empty { display: none; }
-  .pf-badge.muted    { color: var(--ink-soft); }
-  .pf-badge.match    { color: var(--green); background: rgba(45,138,79,0.10); }
-  .pf-badge.mismatch { color: var(--amber); background: rgba(176,123,30,0.10); }
-  .pf-badge.missing  { color: var(--ink-soft); background: rgba(0,0,0,0.04); }
-  .pf-badge.offline  { color: var(--ink-soft); }
+  .pf-badge.muted    { color: var(--ink-soft); background: transparent; }
+  .pf-badge.match    { color: var(--green);    background: rgba(45,138,79,0.12); }
+  .pf-badge.mismatch { color: var(--amber);    background: rgba(176,123,30,0.12); }
+  .pf-badge.missing  { color: var(--ink-soft); background: rgba(0,0,0,0.05); }
+  .pf-badge.offline  { color: var(--ink-soft); background: transparent; }
 
+  /* Pill = role/category label. Border because in some contexts the user
+     can interact with it (e.g. .req-tag toggles required). */
   .pill {
     display: inline-block; padding: 1px 6px; border-radius: 9px;
     font-size: 9px; text-transform: uppercase; letter-spacing: 0.6px;
-    background: rgba(45,106,138,0.10); color: var(--accent);
-    border: 1px solid rgba(45,106,138,0.25);
+    background: transparent; color: var(--accent);
+    border: 1px solid rgba(45,106,138,0.35);
   }
-  .pill.builtin { background: rgba(45,106,138,0.10); color: var(--accent); }
-  .pill.custom  { background: rgba(0,0,0,0.04); color: var(--ink-soft); border-color: var(--line); }
+  .pill.builtin { background: transparent; color: var(--accent); border-color: rgba(45,106,138,0.35); }
+  .pill.custom  { background: transparent; color: var(--ink-soft); border-color: var(--line); }
 
   .add-field-row {
     margin-top: 8px;
@@ -591,12 +708,14 @@
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
   .outcome-card .oc-head .verdict {
+    /* Read-only status indicator — no border. */
     font-size: 10px; text-transform: uppercase; letter-spacing: 0.8px;
-    padding: 1px 7px; border-radius: 9px; font-weight: 600;
+    padding: 2px 8px; border-radius: 9px; font-weight: 600;
+    border: none;
   }
-  .verdict.pass { background: rgba(45,138,79,0.12); color: var(--green); }
-  .verdict.skip { background: rgba(176,123,30,0.12); color: var(--amber); }
-  .verdict.fail { background: rgba(181,57,57,0.12); color: var(--red); }
+  .verdict.pass { background: rgba(45,138,79,0.14); color: var(--green); }
+  .verdict.skip { background: rgba(176,123,30,0.14); color: var(--amber); }
+  .verdict.fail { background: rgba(181,57,57,0.14); color: var(--red); }
   .outcome-card .oc-body { padding: 8px 12px; font-size: 11px; }
   .outcome-card .oc-row {
     display: flex; padding: 3px 0; gap: 8px;
@@ -655,6 +774,49 @@
     background: var(--bg); color: var(--ink); font-size: 9px;
   }
 
+  /* login modal */
+  #login-modal {
+    position: fixed; inset: 0; z-index: 200;
+    display: flex; align-items: center; justify-content: center;
+  }
+  #login-modal[hidden] { display: none; }
+  #login-modal .backdrop {
+    position: absolute; inset: 0; background: rgba(0,0,0,0.45);
+  }
+  #login-modal .modal {
+    position: relative; background: var(--bg);
+    border: 1px solid var(--ink); border-radius: 5px;
+    padding: 20px 24px; width: 460px; max-width: 92vw;
+    box-shadow: 0 12px 40px rgba(0,0,0,0.25);
+  }
+  #login-modal h2 {
+    font-family: var(--mono); font-size: 12px;
+    text-transform: uppercase; letter-spacing: 0.08em;
+    color: var(--ink-soft); margin-bottom: 8px;
+  }
+  #login-modal p code {
+    background: var(--bg-card); padding: 0 4px; border-radius: 2px;
+    color: var(--accent);
+  }
+  #login-modal input {
+    width: 100%; padding: 8px 10px; font-family: var(--mono); font-size: 12px;
+    background: var(--bg-card); border: 1px solid var(--line-input); border-radius: 3px;
+    color: var(--ink); margin-bottom: 12px;
+  }
+  #login-modal input:focus { outline: none; border-color: var(--accent); }
+  #login-modal .login-error {
+    background: rgba(181,57,57,0.10); border: 1px solid rgba(181,57,57,0.3);
+    color: var(--red); padding: 6px 10px; border-radius: 3px;
+    font-size: 11px; margin-bottom: 10px;
+  }
+  #login-modal .modal-actions {
+    display: flex; justify-content: flex-end; gap: 8px;
+  }
+  #login-modal button.primary {
+    background: var(--accent); color: #fff; border-color: var(--accent);
+    padding: 5px 16px; border-radius: 3px; cursor: pointer; font-size: 11px;
+  }
+
   ::-webkit-scrollbar { width: 8px; height: 8px; }
   ::-webkit-scrollbar-track { background: transparent; }
   ::-webkit-scrollbar-thumb { background: var(--line); border-radius: 4px; }
@@ -674,6 +836,7 @@
     <span id="health-pill"><span class="dot"></span>connecting…</span>
     <button class="icon" id="btn-refresh-schema" title="re-fetch paperless schema (custom_fields)">↻</button>
     <button id="btn-test" class="primary" title="test rule against the corpus">Test</button>
+    <button class="icon" id="btn-logout" title="sign out — clears the saved paperless token" hidden>⎋</button>
   </div>
 
   <div class="workspace" id="workspace">
@@ -802,25 +965,22 @@
         <div class="card-body">
           <div class="opt-row">
             <label class="opt-label">date_formats</label>
-            <input type="text" id="opt-date-formats" spellcheck="false"
-                   placeholder="%d.%m.%Y, %d-%b-%Y, %Y-%m-%d">
+            <div class="chip-list" id="opt-date-formats"></div>
             <div class="opt-hint">
-              comma-separated <code>strptime</code> patterns used for <code>type: date</code> fields.
+              <code>strptime</code> patterns used for <code>type: date</code> fields.
               cheatsheet: <code>%d</code>=day · <code>%m</code>=month-num · <code>%b</code>=Jan/Feb/… ·
               <code>%B</code>=January/… · <code>%Y</code>=2026 · <code>%y</code>=26.
               try <code>%d-%b-%Y</code> for <i>23-Apr-2026</i>.
             </div>
           </div>
-          <div class="opt-row">
+          <div class="opt-row narrow">
             <label class="opt-label">currency</label>
-            <input type="text" id="opt-currency" spellcheck="false"
-                   placeholder="EUR" style="max-width: 120px">
+            <input type="text" id="opt-currency" spellcheck="false" placeholder="EUR">
           </div>
           <div class="opt-row">
             <label class="opt-label">languages</label>
-            <input type="text" id="opt-languages" spellcheck="false"
-                   placeholder="fr, de, en">
-            <div class="opt-hint">comma-separated locale hints (extension point — not used by core extraction yet).</div>
+            <div class="chip-list" id="opt-languages"></div>
+            <div class="opt-hint">locale hints (extension point — not used by core extraction yet).</div>
           </div>
         </div>
       </div>
@@ -855,6 +1015,27 @@
 <!-- shared datalist of valid field names: 4 reserved built-ins + every
      paperless custom_field. Field-row name inputs use list="field-names". -->
 <datalist id="field-names"></datalist>
+
+<!-- login modal — surfaces on 401 from any /api/* call. The editor's auth
+     gate uses paperless's own /api/users/me/, so the token here is the
+     paperless API token minted at /profile/. -->
+<div id="login-modal" hidden>
+  <div class="backdrop"></div>
+  <div class="modal">
+    <h2>SIGN IN</h2>
+    <p class="muted" style="font-size:11px; margin-bottom: 12px;">
+      The editor uses your paperless API token as the login credential.
+      Mint one at <code id="login-hint-url">your-paperless/profile/</code> →
+      "API Auth Token" → copy and paste below.
+    </p>
+    <div id="login-error" class="login-error" hidden></div>
+    <input id="login-token" type="password" autocomplete="off" spellcheck="false"
+           placeholder="paste your paperless API token…">
+    <div class="modal-actions">
+      <button id="btn-login" class="primary">Sign in</button>
+    </div>
+  </div>
+</div>
 
 <script>
 "use strict";
@@ -962,6 +1143,7 @@ const state = {
   showWhitespace: false,
   ocrViewMode: "ocr",         // "ocr" | "pdf"
   step: 1,                    // 1 = Selection (match+exclude); 2 = Extraction (fields)
+  expandedFields: new Set(),  // field names whose row is expanded for editing
 
   // server-side full-rule extraction across the corpus
   extraction: null,           // {results: [{doc_id, title, extraction: {...}}]}
@@ -985,9 +1167,31 @@ function emptyRule() {
 
 // ── api ─────────────────────────────────────────────────────────────
 
+// User's paperless token, paste-once via the login modal, kept in
+// localStorage. Added to every /api/* call as `Authorization: Token <…>`,
+// which matches paperless's own scheme — the editor's auth dep verifies it
+// against paperless's /api/users/me/.
+const TOKEN_KEY = "paperless-rules:user-token";
+let userToken = "";
+try { userToken = localStorage.getItem(TOKEN_KEY) || ""; } catch {}
+
+function setUserToken(t) {
+  userToken = (t || "").trim();
+  try {
+    if (userToken) localStorage.setItem(TOKEN_KEY, userToken);
+    else localStorage.removeItem(TOKEN_KEY);
+  } catch {}
+}
+
 const api = {
   async json(p, opts = {}) {
-    const r = await fetch(p, { headers: { "Content-Type": "application/json" }, ...opts });
+    const headers = { "Content-Type": "application/json", ...(opts.headers || {}) };
+    if (userToken) headers["Authorization"] = `Token ${userToken}`;
+    const r = await fetch(p, { ...opts, headers });
+    if (r.status === 401 && p !== "/api/health") {
+      showLoginModal(p === "/api/health" ? "" : "Your paperless token isn't accepted.");
+      throw new Error("auth required");
+    }
     const d = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(d.detail || `HTTP ${r.status}`);
     return d;
@@ -1655,258 +1859,353 @@ function renderPfBadge(badgeEl, name, ruleType) {
   }
 }
 
+// Compute summary metadata for a field (sample value, stats text, body
+// border class, error flag). Used by both the collapsed summary and the
+// expanded edit panel so they agree on validation/sample.
+function fieldStatus(f) {
+  const adv = f.kind === "advanced";
+  const ext = state.extraction?.results || [];
+  if (adv) {
+    const sample = ext.find(r => r.extraction?.fields?.[f.name]?.ok)?.extraction.fields[f.name].value;
+    const keys = (state.rule.extraFieldYaml[f.name] || "")
+      .split("\n").filter(l => l.trim() && !l.trim().startsWith("#")).length;
+    return { sample, statsHTML: `<b>advanced</b> · ${keys} keys`, bodyClass: "", error: false };
+  }
+  if (f.kind === "value") {
+    return {
+      sample: f.body || null,
+      statsHTML: `<b>literal</b> · same on every doc`,
+      bodyClass: "ok",
+      error: false,
+    };
+  }
+  if (f.kind === "template") {
+    const v = validateTemplate(f.body, f.name);
+    if (v.cycle) return { sample: null,
+      statsHTML: `<b class="err">cycle</b> · references back to ${esc(f.name)}`,
+      bodyClass: "err", error: true };
+    if (v.missing.length) return { sample: null,
+      statsHTML: `<b class="err">unknown:</b> ${v.missing.map(m => "{" + esc(m) + "}").join(", ")}`,
+      bodyClass: "err", error: true };
+    if (!v.refs.length) return { sample: f.body || null,
+      statsHTML: `<b class="warn">literal template</b> · no {placeholders}`,
+      bodyClass: "warn", error: false };
+    const sample = ext.find(r => r.extraction?.fields?.[f.name]?.ok)?.extraction.fields[f.name].value;
+    return { sample, statsHTML: `<b>${v.refs.length} placeholder${v.refs.length === 1 ? "" : "s"}</b>`,
+      bodyClass: "ok", error: false };
+  }
+  // regex
+  if (!ext.length) {
+    return { sample: null,
+      statsHTML: `<span style="color:var(--ink-soft)">no corpus</span>`,
+      bodyClass: "", error: false };
+  }
+  let docs = 0, sample = null, errored = false;
+  for (const r of ext) {
+    const fr = r.extraction?.fields?.[f.name];
+    if (!fr) continue;
+    if (fr.error && fr.error.toLowerCase().includes("regex")) { errored = true; break; }
+    if (fr.ok) {
+      docs++;
+      if (r.doc_id === state.activeDocId && sample == null) sample = fr.value;
+    }
+  }
+  if (errored) return { sample: null,
+    statsHTML: `<b class="err">invalid regex</b>`, bodyClass: "err", error: true };
+  if (sample == null) sample = ext.find(r => r.extraction?.fields?.[f.name]?.ok)?.extraction.fields[f.name].value;
+  const cls = docs === ext.length ? "ok" : (docs ? "warn" : "err");
+  const labelCls = cls === "ok" ? "" : cls;
+  return {
+    sample,
+    statsHTML: `<b class="${labelCls}">${docs}/${ext.length} docs</b>`,
+    bodyClass: cls,
+    error: docs === 0,
+  };
+}
+
+// Stable expansion key for a field. Falls back to a positional key for
+// brand-new fields whose name isn't yet typed.
+function fieldKey(f, i) { return f.name || `__new__${i}`; }
+
+function isExpanded(f, i, status) {
+  // User-toggled wins, but auto-expand new (no name) and erroring fields so
+  // the user can immediately fix them.
+  if (state.expandedFields.has(fieldKey(f, i))) return true;
+  if (!f.name) return true;
+  if (status.error) return true;
+  return false;
+}
+
+function buildSummary(f, i, status, expanded) {
+  const sum = document.createElement("div");
+  sum.className = "field-summary";
+
+  const chev = document.createElement("button");
+  chev.className = "chevron";
+  chev.textContent = "▶";
+  chev.title = expanded ? "collapse" : "expand";
+  sum.appendChild(chev);
+
+  const editGlyph = document.createElement("span");
+  editGlyph.className = "edit-glyph";
+  editGlyph.textContent = "✎";
+  editGlyph.title = "click row to edit";
+  sum.appendChild(editGlyph);
+
+  const fn = document.createElement("span");
+  fn.className = "fname"
+    + (RESERVED_BUILTINS.has(f.name) ? " reserved" : (!f.name ? " unset" : ""));
+  fn.textContent = f.name || "(new field — click to name)";
+  sum.appendChild(fn);
+
+  const kchip = document.createElement("span");
+  kchip.className = "kchip";
+  kchip.textContent = KIND_LABELS[f.kind] || f.kind;
+  kchip.title = f.kind;
+  sum.appendChild(kchip);
+
+  const badge = document.createElement("span");
+  badge.className = "pf-badge";
+  renderPfBadge(badge, f.name, f.type);
+  sum.appendChild(badge);
+
+  const sampleEl = document.createElement("span");
+  sampleEl.className = "fsample" + (status.error ? " miss" : "");
+  if (status.sample != null && status.sample !== "") {
+    const s = String(status.sample);
+    sampleEl.innerHTML = `<b>${esc(s.length > 80 ? s.slice(0, 80) + "…" : s)}</b>`;
+  } else if (status.error) {
+    sampleEl.textContent = status.statsHTML.replace(/<[^>]+>/g, "").slice(0, 80);
+  } else {
+    sampleEl.innerHTML = status.statsHTML;
+  }
+  sum.appendChild(sampleEl);
+
+  const del = document.createElement("button");
+  del.className = "delete-btn";
+  del.title = "delete field";
+  del.textContent = "×";
+  del.addEventListener("click", e => {
+    e.stopPropagation();
+    state.expandedFields.delete(fieldKey(f, i));
+    state.rule.fields.splice(i, 1);
+    state.rule.required = state.rule.required.filter(n => n !== f.name);
+    delete state.rule.extraFieldYaml[f.name];
+    renderFieldRows(); renderRequiredTags(); markDirty(); scheduleSerialize();
+  });
+  sum.appendChild(del);
+
+  // chevron + summary background both toggle expansion
+  const toggle = e => {
+    if (e.target === del) return;
+    const k = fieldKey(f, i);
+    if (state.expandedFields.has(k)) state.expandedFields.delete(k);
+    else state.expandedFields.add(k);
+    renderFieldRows();
+  };
+  chev.addEventListener("click", toggle);
+  sum.addEventListener("click", e => {
+    // ignore clicks on the chevron (it has its own handler) and on delete
+    if (e.target === chev || e.target === del) return;
+    toggle(e);
+  });
+
+  return sum;
+}
+
+function buildEditGrid(f, i, status) {
+  const grid = document.createElement("div");
+  grid.className = "field-edit";
+
+  // col 1: name + pill + paperless badge
+  const nameCol = document.createElement("div");
+  nameCol.className = "col";
+  const nameInp = document.createElement("input");
+  nameInp.type = "text";
+  nameInp.value = f.name;
+  nameInp.spellcheck = false;
+  nameInp.setAttribute("list", "field-names");
+  nameInp.placeholder = "pick or type…";
+  nameInp.className = "name-input" + (RESERVED_BUILTINS.has(f.name) ? " reserved" : "");
+  nameInp.addEventListener("input", e => {
+    const oldName = f.name;
+    f.name = e.target.value.trim();
+    // Migrate expandedFields key + extraFieldYaml under the new name
+    if (oldName !== f.name) {
+      if (state.expandedFields.has(oldName)) {
+        state.expandedFields.delete(oldName);
+        state.expandedFields.add(f.name || `__new__${i}`);
+      }
+      if (state.rule.extraFieldYaml[oldName] !== undefined) {
+        state.rule.extraFieldYaml[f.name] = state.rule.extraFieldYaml[oldName];
+        delete state.rule.extraFieldYaml[oldName];
+      }
+    }
+    nameInp.classList.toggle("reserved", RESERVED_BUILTINS.has(f.name));
+    pill.textContent = RESERVED_BUILTINS.has(f.name) ? "built-in" : "custom";
+    pill.className = "pill " + (RESERVED_BUILTINS.has(f.name) ? "builtin" : "custom");
+    renderPfBadge(badge, f.name, f.type);
+    markDirty(); scheduleSerialize(); renderRequiredTags();
+    // re-render to keep summary headline + key in sync (lightweight)
+    renderFieldRows();
+    // refocus the name input after re-render
+    setTimeout(() => {
+      const all = $("#field-rows").querySelectorAll(".name-input");
+      if (all[i]) { all[i].focus(); all[i].setSelectionRange(all[i].value.length, all[i].value.length); }
+    }, 0);
+  });
+  const pill = document.createElement("span");
+  pill.className = "pill " + (RESERVED_BUILTINS.has(f.name) ? "builtin" : "custom");
+  pill.style.alignSelf = "flex-start";
+  pill.textContent = RESERVED_BUILTINS.has(f.name) ? "built-in" : "custom";
+  const badge = document.createElement("span");
+  badge.className = "pf-badge";
+  renderPfBadge(badge, f.name, f.type);
+  nameCol.appendChild(nameInp);
+  nameCol.appendChild(pill);
+  nameCol.appendChild(badge);
+  grid.appendChild(nameCol);
+
+  // col 2: kind toggle (re | val | tpl | adv)
+  const kindCol = document.createElement("div");
+  kindCol.className = "col";
+  const toggle = document.createElement("div");
+  toggle.className = "kind-toggle";
+  KIND_ORDER.forEach(k => {
+    const b = document.createElement("button");
+    b.textContent = KIND_LABELS[k];
+    b.title = k;
+    if (f.kind === k) b.classList.add("active");
+    b.addEventListener("click", () => {
+      if (f.kind === k) return;
+      if (k === "advanced") {
+        if (!state.rule.extraFieldYaml[f.name]) {
+          state.rule.extraFieldYaml[f.name] = synthesizeAdvancedYaml(f);
+        }
+      } else if (f.kind === "advanced") {
+        if (state.rule.extraFieldYaml[f.name] &&
+            !confirm("Switching kinds will discard the advanced YAML for this field. Continue?")) {
+          return;
+        }
+        delete state.rule.extraFieldYaml[f.name];
+        if (!f.body) f.body = "";
+      }
+      f.kind = k;
+      renderFieldRows(); markDirty(); scheduleSerialize();
+    });
+    toggle.appendChild(b);
+  });
+  kindCol.appendChild(toggle);
+  grid.appendChild(kindCol);
+
+  // col 3: body input + row stats — input for simple kinds, textarea for advanced
+  const bodyCol = document.createElement("div");
+  bodyCol.className = "col";
+  let bodyInp;
+  if (f.kind === "advanced") {
+    bodyInp = document.createElement("textarea");
+    bodyInp.className = "adv-body";
+    bodyInp.spellcheck = false;
+    bodyInp.rows = 4;
+    bodyInp.value = state.rule.extraFieldYaml[f.name] || "";
+    bodyInp.placeholder = "regex: 'PATTERN'\ntype: str\nmap:\n  KEY: value\ndefault: 'fallback'";
+    bodyInp.addEventListener("input", e => {
+      state.rule.extraFieldYaml[f.name] = e.target.value;
+      markDirty(); scheduleSerialize();
+    });
+  } else {
+    bodyInp = document.createElement("input");
+    bodyInp.type = "text";
+    bodyInp.value = f.body;
+    bodyInp.spellcheck = false;
+    bodyInp.placeholder = f.kind === "regex" ? "/pattern (capture)/"
+                       : f.kind === "value" ? "literal value"
+                       : "{date} #{invoice_number}";
+    bodyInp.addEventListener("input", e => {
+      f.body = e.target.value;
+      markDirty(); scheduleSerialize();
+    });
+  }
+  if (status.bodyClass) bodyInp.classList.add(status.bodyClass);
+  bodyCol.appendChild(bodyInp);
+
+  if (f.kind === "advanced") {
+    const sn = document.createElement("select");
+    sn.className = "adv-snippet";
+    sn.innerHTML = '<option value="">+ transform ▼</option>' +
+      Object.keys(SNIPPET_LABELS).map(k => `<option value="${k}">${esc(SNIPPET_LABELS[k])}</option>`).join("");
+    sn.addEventListener("change", e => {
+      const k = e.target.value;
+      e.target.value = "";
+      if (!k) return;
+      const cur = state.rule.extraFieldYaml[f.name] || "";
+      const sep = cur && !cur.endsWith("\n") ? "\n" : "";
+      state.rule.extraFieldYaml[f.name] = cur + sep + FIELD_SNIPPETS[k];
+      renderFieldRows(); markDirty(); scheduleSerialize();
+    });
+    bodyCol.appendChild(sn);
+  }
+
+  const stats = document.createElement("div");
+  stats.className = "row-stats";
+  stats.innerHTML = status.statsHTML;
+  bodyCol.appendChild(stats);
+  grid.appendChild(bodyCol);
+
+  // col 4: type select
+  const typeCol = document.createElement("div");
+  typeCol.className = "col";
+  const typeSel = document.createElement("select");
+  if (f.kind === "value") typeSel.disabled = true;
+  TYPE_OPTIONS.forEach(t => {
+    const o = document.createElement("option");
+    o.value = t; o.textContent = t;
+    if (f.type === t) o.selected = true;
+    typeSel.appendChild(o);
+  });
+  typeSel.addEventListener("change", e => {
+    f.type = e.target.value;
+    renderPfBadge(badge, f.name, f.type);
+    markDirty(); scheduleSerialize();
+  });
+  typeCol.appendChild(typeSel);
+  grid.appendChild(typeCol);
+
+  // col 5: sample
+  const sampleCol = document.createElement("div");
+  sampleCol.className = "col";
+  const sampleLine = document.createElement("div");
+  sampleLine.className = "row-stats";
+  sampleLine.style.fontSize = "10px";
+  if (status.sample != null && status.sample !== "") {
+    sampleLine.innerHTML = `<span class="sample">${esc(String(status.sample))}</span>`;
+  } else if (status.error) {
+    sampleLine.innerHTML = `<span style="color:var(--red)">no match</span>`;
+  } else {
+    sampleLine.innerHTML = "";
+  }
+  sampleCol.appendChild(sampleLine);
+  grid.appendChild(sampleCol);
+
+  // col 6: spacer (delete is in summary line so the row always has it)
+  const spacer = document.createElement("div");
+  grid.appendChild(spacer);
+
+  return grid;
+}
+
 function renderFieldRows() {
   const root = $("#field-rows");
   root.innerHTML = "";
 
   state.rule.fields.forEach((f, i) => {
+    const status = fieldStatus(f);
+    const expanded = isExpanded(f, i, status);
     const row = document.createElement("div");
-    row.className = "field-row";
+    row.className = "field-row" + (expanded ? " expanded" : "");
 
-    // col 1: name + pill + paperless badge
-    const nameCol = document.createElement("div");
-    nameCol.className = "col";
-    const nameInp = document.createElement("input");
-    nameInp.type = "text";
-    nameInp.value = f.name;
-    nameInp.spellcheck = false;
-    nameInp.setAttribute("list", "field-names");      // datalist of paperless fields
-    nameInp.placeholder = "pick or type…";
-    nameInp.className = "name-input" + (RESERVED_BUILTINS.has(f.name) ? " reserved" : "");
-    nameInp.addEventListener("input", e => {
-      f.name = e.target.value.trim();
-      nameInp.classList.toggle("reserved", RESERVED_BUILTINS.has(f.name));
-      pill.textContent = RESERVED_BUILTINS.has(f.name) ? "built-in" : "custom";
-      pill.className = "pill " + (RESERVED_BUILTINS.has(f.name) ? "builtin" : "custom");
-      renderPfBadge(badge, f.name, f.type);
-      renderRowStats(); markDirty(); scheduleSerialize(); renderRequiredTags();
-    });
-    const pill = document.createElement("span");
-    pill.className = "pill " + (RESERVED_BUILTINS.has(f.name) ? "builtin" : "custom");
-    pill.style.alignSelf = "flex-start";
-    pill.textContent = RESERVED_BUILTINS.has(f.name) ? "built-in" : "custom";
-    const badge = document.createElement("span");
-    badge.className = "pf-badge";
-    nameCol.appendChild(nameInp);
-    nameCol.appendChild(pill);
-    nameCol.appendChild(badge);
-    row.appendChild(nameCol);
-
-    // col 2: kind toggle (re | val | tpl | adv)
-    const kindCol = document.createElement("div");
-    kindCol.className = "col";
-    const toggle = document.createElement("div");
-    toggle.className = "kind-toggle";
-    KIND_ORDER.forEach(k => {
-      const b = document.createElement("button");
-      b.textContent = KIND_LABELS[k];
-      b.title = k;
-      if (f.kind === k) b.classList.add("active");
-      b.addEventListener("click", () => {
-        if (f.kind === k) return;
-        if (k === "advanced") {
-          // Switching INTO advanced: synthesize YAML from the simple body so
-          // the user starts with the equivalent advanced spec, then can
-          // sprinkle in default/map/pick/etc.
-          if (!state.rule.extraFieldYaml[f.name]) {
-            state.rule.extraFieldYaml[f.name] = synthesizeAdvancedYaml(f);
-          }
-        } else if (f.kind === "advanced") {
-          // Switching OUT of advanced: drop the verbatim YAML.
-          if (state.rule.extraFieldYaml[f.name] &&
-              !confirm("Switching kinds will discard the advanced YAML for this field. Continue?")) {
-            return;
-          }
-          delete state.rule.extraFieldYaml[f.name];
-          if (!f.body) f.body = "";
-        }
-        f.kind = k;
-        renderFieldRows(); markDirty(); scheduleSerialize();
-      });
-      toggle.appendChild(b);
-    });
-    kindCol.appendChild(toggle);
-    row.appendChild(kindCol);
-
-    // col 3: body input + row stats — input for simple kinds, textarea for advanced
-    const bodyCol = document.createElement("div");
-    bodyCol.className = "col";
-    let bodyInp;
-    if (f.kind === "advanced") {
-      bodyInp = document.createElement("textarea");
-      bodyInp.className = "adv-body";
-      bodyInp.spellcheck = false;
-      bodyInp.rows = 4;
-      bodyInp.value = state.rule.extraFieldYaml[f.name] || "";
-      bodyInp.placeholder = "regex: 'PATTERN'\ntype: str\nmap:\n  KEY: value\ndefault: 'fallback'";
-      bodyInp.addEventListener("input", e => {
-        state.rule.extraFieldYaml[f.name] = e.target.value;
-        renderRowStats(); markDirty(); scheduleSerialize();
-      });
-    } else {
-      bodyInp = document.createElement("input");
-      bodyInp.type = "text";
-      bodyInp.value = f.body;
-      bodyInp.spellcheck = false;
-      bodyInp.placeholder = f.kind === "regex" ? "/pattern (capture)/"
-                         : f.kind === "value" ? "literal value"
-                         : "{date} #{invoice_number}";
-      bodyInp.addEventListener("input", e => {
-        f.body = e.target.value;
-        renderRowStats(); markDirty(); scheduleSerialize();
-      });
-    }
-    bodyCol.appendChild(bodyInp);
-
-    // snippet inserter for advanced mode
-    if (f.kind === "advanced") {
-      const sn = document.createElement("select");
-      sn.className = "adv-snippet";
-      sn.innerHTML = '<option value="">+ transform ▼</option>' +
-        Object.keys(SNIPPET_LABELS).map(k => `<option value="${k}">${esc(SNIPPET_LABELS[k])}</option>`).join("");
-      sn.addEventListener("change", e => {
-        const k = e.target.value;
-        e.target.value = "";
-        if (!k) return;
-        const cur = state.rule.extraFieldYaml[f.name] || "";
-        const sep = cur && !cur.endsWith("\n") ? "\n" : "";
-        state.rule.extraFieldYaml[f.name] = cur + sep + FIELD_SNIPPETS[k];
-        renderFieldRows(); markDirty(); scheduleSerialize();
-      });
-      bodyCol.appendChild(sn);
-    }
-
-    const stats = document.createElement("div");
-    stats.className = "row-stats";
-    bodyCol.appendChild(stats);
-    row.appendChild(bodyCol);
-
-    // col 4: type select
-    const typeCol = document.createElement("div");
-    typeCol.className = "col";
-    const typeSel = document.createElement("select");
-    if (f.kind === "value") typeSel.disabled = true;
-    TYPE_OPTIONS.forEach(t => {
-      const o = document.createElement("option");
-      o.value = t; o.textContent = t;
-      if (f.type === t) o.selected = true;
-      typeSel.appendChild(o);
-    });
-    typeSel.addEventListener("change", e => {
-      f.type = e.target.value;
-      renderPfBadge(badge, f.name, f.type);
-      markDirty(); scheduleSerialize();
-    });
-    typeCol.appendChild(typeSel);
-    row.appendChild(typeCol);
-
-    // col 5: sample
-    const sampleCol = document.createElement("div");
-    sampleCol.className = "col";
-    const sampleLine = document.createElement("div");
-    sampleLine.className = "row-stats";
-    sampleLine.style.fontSize = "10px";
-    sampleCol.appendChild(sampleLine);
-    row.appendChild(sampleCol);
-
-    // col 6: delete
-    const del = document.createElement("button");
-    del.className = "delete-btn";
-    del.title = "delete field";
-    del.textContent = "×";
-    del.addEventListener("click", () => {
-      state.rule.fields.splice(i, 1);
-      state.rule.required = state.rule.required.filter(n => n !== f.name);
-      delete state.rule.extraFieldYaml[f.name];
-      renderFieldRows(); renderRequiredTags(); markDirty(); scheduleSerialize();
-    });
-    row.appendChild(del);
-
-    function renderRowStats() {
-      bodyInp.classList.remove("ok", "warn", "err");
-      if (f.kind === "advanced") {
-        // sample comes from /api/test once the rule is serialized + re-tested
-        const ext = (state.extraction?.results || []).find(r => r.extraction?.fields?.[f.name]?.ok);
-        const sample = ext?.extraction?.fields?.[f.name]?.value;
-        stats.innerHTML = `<b>advanced</b> · ${(state.rule.extraFieldYaml[f.name] || "").split("\n").filter(l => l.trim() && !l.trim().startsWith("#")).length} keys`;
-        sampleLine.innerHTML = sample != null
-          ? `<span class="sample">${esc(String(sample))}</span>`
-          : `<span style="color:var(--ink-soft)">—</span>`;
-        return;
-      }
-      if (f.kind === "value") {
-        bodyInp.classList.add("ok");
-        stats.innerHTML = `<b>literal</b> · same on every doc`;
-        sampleLine.innerHTML = `<span class="sample">${esc(f.body || "—")}</span>`;
-        return;
-      }
-      if (f.kind === "template") {
-        const v = validateTemplate(f.body, f.name);
-        if (v.cycle) {
-          bodyInp.classList.add("err");
-          stats.innerHTML = `<b class="err">cycle</b> · references back to ${esc(f.name)}`;
-          sampleLine.innerHTML = `<span style="color:var(--red)">cycle blocks resolution</span>`;
-        } else if (v.missing.length) {
-          bodyInp.classList.add("err");
-          stats.innerHTML = `<b class="err">unknown:</b> ${v.missing.map(m => "{" + esc(m) + "}").join(", ")}`;
-          sampleLine.innerHTML = `<span style="color:var(--red)">add the missing field${v.missing.length === 1 ? "" : "s"}</span>`;
-        } else if (!v.refs.length) {
-          bodyInp.classList.add("warn");
-          stats.innerHTML = `<b class="warn">literal template</b> · no {placeholders}`;
-          sampleLine.innerHTML = `<span class="sample">${esc(f.body || "—")}</span>`;
-        } else {
-          bodyInp.classList.add("ok");
-          stats.innerHTML = `<b>${v.refs.length} placeholder${v.refs.length === 1 ? "" : "s"}</b>`;
-          // pick a sample from extraction (first matched doc)
-          const ext = (state.extraction?.results || []).find(r => r.extraction?.fields?.[f.name]?.ok);
-          const sample = ext?.extraction?.fields?.[f.name]?.value;
-          sampleLine.innerHTML = sample != null
-            ? `<span class="sample">${esc(String(sample))}</span>`
-            : "";
-        }
-        return;
-      }
-      // regex
-      const ext = state.extraction?.results || [];
-      if (!ext.length) {
-        bodyInp.classList.add(state.rule.fields[i] ? "ok" : "");
-        stats.innerHTML = `<span class="muted" style="color:var(--ink-soft)">no corpus</span>`;
-        sampleLine.innerHTML = "";
-        return;
-      }
-      let docs = 0, sample = null, errored = false;
-      for (const r of ext) {
-        const fr = r.extraction?.fields?.[f.name];
-        if (!fr) continue;
-        if (fr.error && fr.error.toLowerCase().includes("regex")) { errored = true; break; }
-        if (fr.ok) {
-          docs++;
-          if (r.doc_id === state.activeDocId && sample == null) sample = fr.value;
-        }
-      }
-      if (errored) {
-        bodyInp.classList.add("err");
-        stats.innerHTML = `<b class="err">invalid regex</b>`;
-        sampleLine.innerHTML = "";
-      } else {
-        const cls = docs === ext.length ? "ok" : (docs ? "warn" : "err");
-        bodyInp.classList.add(cls);
-        const labelCls = cls === "ok" ? "" : cls;
-        stats.innerHTML = `<b class="${labelCls}">${docs}/${ext.length} docs</b>`;
-        if (sample != null) {
-          sampleLine.innerHTML = `<span class="sample">${esc(String(sample))}</span>`;
-        } else {
-          // fall back to any matched doc
-          const anySample = ext.find(r => r.extraction?.fields?.[f.name]?.ok)?.extraction.fields[f.name].value;
-          sampleLine.innerHTML = anySample != null
-            ? `<span class="sample">${esc(String(anySample))}</span>`
-            : `<span style="color:var(--red)">no match</span>`;
-        }
-      }
-    }
-
-    renderRowStats();
-    renderPfBadge(badge, f.name, f.type);
+    row.appendChild(buildSummary(f, i, status, expanded));
+    if (expanded) row.appendChild(buildEditGrid(f, i, status));
     root.appendChild(row);
   });
 
@@ -1915,20 +2214,8 @@ function renderFieldRows() {
   let okFields = 0;
   if (state.extraction?.results?.length) {
     for (const f of state.rule.fields) {
-      if (f.kind === "value")    { okFields++; continue; }
-      if (f.kind === "template") {
-        const v = validateTemplate(f.body, f.name);
-        if (!v.cycle && !v.missing.length) okFields++;
-        continue;
-      }
-      if (f.kind === "advanced") { okFields++; continue; }
-      const ext = state.extraction.results;
-      let allOk = true;
-      for (const r of ext) {
-        const fr = r.extraction?.fields?.[f.name];
-        if (!fr || !fr.ok) { allOk = false; break; }
-      }
-      if (allOk) okFields++;
+      const s = fieldStatus(f);
+      if (!s.error) okFields++;
     }
   } else {
     okFields = fcount;
@@ -2042,16 +2329,71 @@ function renderOutcomeCards() {
   }
 }
 
+function renderChipList(host, items, placeholder, onChange) {
+  host.innerHTML = "";
+  items.forEach((v, i) => {
+    const t = document.createElement("span");
+    t.className = "token";
+    t.appendChild(document.createTextNode(String(v)));
+    const x = document.createElement("span");
+    x.className = "x";
+    x.textContent = "×";
+    x.title = "remove";
+    x.addEventListener("click", e => {
+      e.stopPropagation();
+      const next = items.slice();
+      next.splice(i, 1);
+      onChange(next);
+    });
+    t.appendChild(x);
+    host.appendChild(t);
+  });
+  const add = document.createElement("input");
+  add.type = "text";
+  add.className = "add";
+  add.placeholder = placeholder;
+  add.spellcheck = false;
+  add.addEventListener("keydown", e => {
+    if (e.key === "Enter" || e.key === ",") {
+      e.preventDefault();
+      const v = add.value.trim();
+      if (v) onChange([...items, v]);
+    }
+  });
+  add.addEventListener("blur", () => {
+    const v = add.value.trim();
+    if (v) onChange([...items, v]);
+  });
+  host.appendChild(add);
+  // clicking the host (not on a token) focuses the add input
+  host.addEventListener("click", e => {
+    if (e.target === host) add.focus();
+  });
+}
+
 function renderOptions() {
   const opts = state.rule.options || {};
-  const dfEl = $("#opt-date-formats");
   const cur  = $("#opt-currency");
-  const lang = $("#opt-languages");
-  const dfStr = (opts.date_formats || []).join(", ");
-  const langStr = (opts.languages || []).join(", ");
-  if (dfEl  && dfEl.value !== dfStr)        dfEl.value = dfStr;
-  if (cur   && cur.value  !== (opts.currency || "")) cur.value = opts.currency || "";
-  if (lang  && lang.value !== langStr)      lang.value = langStr;
+  if (cur && cur.value !== (opts.currency || "")) cur.value = opts.currency || "";
+
+  renderChipList(
+    $("#opt-date-formats"),
+    opts.date_formats || [],
+    "+ format (e.g. %d-%b-%Y)",
+    next => {
+      state.rule.options.date_formats = next;
+      markDirty(); scheduleSerialize(); renderOptions();
+    }
+  );
+  renderChipList(
+    $("#opt-languages"),
+    opts.languages || [],
+    "+ language",
+    next => {
+      state.rule.options.languages = next;
+      markDirty(); scheduleSerialize(); renderOptions();
+    }
+  );
 }
 
 function renderRawYaml() {
@@ -2085,11 +2427,60 @@ function renderAll() {
   renderRawYaml();
 }
 
+// ── auth (login modal + logout) ─────────────────────────────────────
+
+let authRequired = true;     // updated from /api/health on boot
+
+function showLoginModal(message) {
+  const el = $("#login-modal");
+  if (!el) return;
+  const err = $("#login-error");
+  if (message) { err.textContent = message; err.hidden = false; }
+  else err.hidden = true;
+  el.hidden = false;
+  setTimeout(() => $("#login-token")?.focus(), 0);
+}
+function hideLoginModal() { $("#login-modal").hidden = true; }
+
+async function attemptLogin(token) {
+  setUserToken(token);
+  // Ping any auth-gated route to verify; reuse listRules since it's small.
+  try {
+    await api.json("/api/rules");
+    hideLoginModal();
+    $("#btn-logout").hidden = false;
+    // Re-run boot-time loaders so the page populates with the user's data.
+    await Promise.all([loadDocs(), loadRules(), loadCustomFields()]);
+    renderAll();
+  } catch (e) {
+    if (e.message !== "auth required") {
+      const err = $("#login-error");
+      err.textContent = e.message; err.hidden = false;
+    }
+  }
+}
+
+function logout() {
+  setUserToken("");
+  $("#btn-logout").hidden = true;
+  showLoginModal();
+}
+
 // ── data loading ────────────────────────────────────────────────────
 
 async function loadHealth() {
-  try { renderHealth(await api.health()); }
-  catch (e) {
+  try {
+    const h = await api.health();
+    renderHealth(h);
+    authRequired = !!h.auth_required;
+    // On Synology setups the paperless URL doubles as the hint for where
+    // to mint the token. Try to make it clickable when known.
+    const url = h.paperless?.url || "";
+    if (url) $("#login-hint-url").textContent = url.replace(/\/$/, "") + "/profile/";
+    // If auth isn't required (LAN-only mode) keep the logout button hidden.
+    if (!authRequired) $("#btn-logout").hidden = true;
+    else if (userToken)  $("#btn-logout").hidden = false;
+  } catch (e) {
     const el = $("#health-pill");
     el.classList.remove("ok"); el.classList.add("error");
     el.innerHTML = '<span class="dot"></span>paperless: ' + esc(e.message);
@@ -2142,16 +2533,22 @@ async function loadDocs() {
   docsAbort = new AbortController();
   const signal = docsAbort.signal;
 
+  // The two branches below use raw fetch (so we can pass the AbortController),
+  // so they have to add the Authorization header themselves — api.json adds
+  // it automatically but doesn't accept signals.
+  const authHeaders = userToken ? { "Authorization": `Token ${userToken}` } : {};
+
   if (matchPat) {
     state.docsSource = "discover";
     $("#doc-list").innerHTML = '<div class="empty">scanning paperless…</div>';
     try {
       const r = await fetch("/api/discover", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...authHeaders },
         body: JSON.stringify({ match: matchPat, exclude: state.rule.exclude || null, search: search || null }),
         signal,
       });
+      if (r.status === 401) { showLoginModal(); return; }
       const body = await r.json();
       if (!r.ok) {
         $("#doc-list").innerHTML = `<div class="empty">discover: ${esc(body.detail || r.status)}</div>`;
@@ -2172,8 +2569,11 @@ async function loadDocs() {
     state.docsSource = "search";
     state.docsScanned = 0; state.docsTruncated = false;
     try {
-      const data = await fetch(`/api/documents?query=${encodeURIComponent(search)}`, { signal })
-        .then(r => r.json());
+      const r = await fetch(`/api/documents?query=${encodeURIComponent(search)}`, {
+        headers: authHeaders, signal,
+      });
+      if (r.status === 401) { showLoginModal(); return; }
+      const data = await r.json();
       state.docs = (data.results || []).map(d => ({ id: d.id, title: d.title }));
     } catch (e) {
       if (e.name === "AbortError") return;
@@ -2566,18 +2966,25 @@ function wire() {
   });
   $("#btn-edit-selection").addEventListener("click", () => setStep(1));
 
-  // options card
-  const splitCsv = s => s.split(",").map(x => x.trim()).filter(Boolean);
-  $("#opt-date-formats").addEventListener("input", e => {
-    state.rule.options.date_formats = splitCsv(e.target.value);
-    markDirty(); scheduleSerialize();
+  // login modal + logout
+  $("#btn-login").addEventListener("click", () => {
+    const t = $("#login-token").value.trim();
+    if (!t) {
+      const err = $("#login-error");
+      err.textContent = "paste a token first"; err.hidden = false;
+      return;
+    }
+    attemptLogin(t);
   });
+  $("#login-token").addEventListener("keydown", e => {
+    if (e.key === "Enter") $("#btn-login").click();
+  });
+  $("#btn-logout").addEventListener("click", logout);
+
+  // options card — chip-list controls re-bind themselves on each render
+  // (renderOptions builds them); only the simple currency input is wired here.
   $("#opt-currency").addEventListener("input", e => {
     state.rule.options.currency = e.target.value.trim();
-    markDirty(); scheduleSerialize();
-  });
-  $("#opt-languages").addEventListener("input", e => {
-    state.rule.options.languages = splitCsv(e.target.value);
     markDirty(); scheduleSerialize();
   });
 }
@@ -2591,7 +2998,18 @@ function wire() {
   } catch {}
   wire();
   setupKeyboard();
-  await Promise.all([loadHealth(), loadDocs(), loadRules(), loadCustomFields()]);
+  // Health is unauthenticated and tells us whether auth is required and
+  // where to mint a token. Do it first so the login modal hint URL is right.
+  await loadHealth();
+  if (authRequired && !userToken) {
+    // No saved token → show modal, defer the rest until login succeeds.
+    showLoginModal();
+    return;
+  }
+  // Auth disabled, or we already have a (possibly-stale) token. Try to load.
+  // If the token is stale, api.json will surface 401 and pop the modal.
+  await Promise.all([loadDocs(), loadRules(), loadCustomFields()]);
+  if (authRequired) $("#btn-logout").hidden = false;
   renderAll();
   try {
     const last = localStorage.getItem("paperless-rules:active");

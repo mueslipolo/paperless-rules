@@ -98,6 +98,38 @@ class PaperlessClient:
         """Full document record including OCR `content` field."""
         return await self._get_json(f"/api/documents/{doc_id}/")
 
+    async def verify_token(self, token: str) -> dict[str, Any] | None:
+        """Verify a paperless API token by hitting an authenticated endpoint.
+
+        Returns a sentinel ``{"ok": True}`` on success, ``None`` on 401/403.
+        Used by the editor's auth gate so a paperless token is the single
+        source of truth for "who can use the editor".
+
+        Probe is ``GET /api/documents/?page_size=1`` because:
+          - it exists across all paperless-ngx versions (``/api/users/me/``
+            isn't universal — some installations 404 on it);
+          - any user with API access can hit it;
+          - ``page_size=1`` keeps it cheap.
+
+        The per-call ``headers=`` overrides the client-level Authorization
+        (which uses the server's admin token) for this single request only.
+        """
+        headers = {
+            "Authorization": f"Token {token}",
+            "Accept": "application/json; version=2",
+        }
+        try:
+            r = await self._client.get(
+                "/api/documents/", headers=headers, params={"page_size": 1}
+            )
+        except httpx.HTTPError as e:
+            raise PaperlessError(f"verify_token failed: {e}") from e
+        if r.status_code in (401, 403):
+            return None
+        if r.status_code >= 400:
+            raise PaperlessError(f"GET /api/documents/ HTTP {r.status_code}")
+        return {"ok": True}
+
     async def get_preview(self, doc_id: int) -> tuple[bytes, str]:
         """Fetch the document's PDF preview as raw bytes + content-type.
 

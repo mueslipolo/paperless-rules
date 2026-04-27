@@ -61,7 +61,13 @@ def fake():
 
 @pytest.fixture
 def app_client(tmp_path, fake):
-    cfg = Config(rules_dir=tmp_path / "rules", state_dir=tmp_path / "state")
+    # editor_auth_required=False keeps the test suite focused on route
+    # behaviour; auth is covered separately in test_editor_auth.py.
+    cfg = Config(
+        rules_dir=tmp_path / "rules",
+        state_dir=tmp_path / "state",
+        editor_auth_required=False,
+    )
     with TestClient(create_app(cfg, paperless_client=fake)) as c:
         yield c
 
@@ -76,7 +82,7 @@ def test_health_paperless_ok(app_client):
 
 
 def test_health_paperless_down(tmp_path):
-    cfg = Config(rules_dir=tmp_path)
+    cfg = Config(rules_dir=tmp_path, editor_auth_required=False)
     with TestClient(create_app(cfg, paperless_client=FakePaperless(healthy=False))) as c:
         assert c.get("/api/health").json()["paperless"]["ok"] is False
 
