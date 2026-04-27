@@ -16,7 +16,7 @@ from pydantic import BaseModel
 from paperless_rules import bootstrap as bootstrap_module
 from paperless_rules.config import Config
 from paperless_rules.editor.auth import make_auth_dep
-from paperless_rules.engine import coerce_value, extract_with_rule
+from paperless_rules.engine import coerce_value, extract_with_rule, load_rules
 from paperless_rules.paperless_client import PaperlessClient, PaperlessError
 from paperless_rules.rules_io import (
     RulesIOError,
@@ -25,6 +25,7 @@ from paperless_rules.rules_io import (
     read_rule,
     write_rule,
 )
+from paperless_rules.runtime.apply import ResolutionCache, apply_rules_to_document
 
 __APP_VERSION__ = "0.1.0"
 
@@ -50,6 +51,27 @@ class RegexTestRequest(BaseModel):
 
 class BootstrapRequest(BaseModel):
     doc_id: int
+
+
+class PostConsumeRequest(BaseModel):
+    """Triggered by paperless's PAPERLESS_POST_CONSUME_SCRIPT (via the helper
+    shell wrapper in scripts/post_consume_via_rules.sh) for each newly
+    consumed doc."""
+    doc_id: int
+
+
+class ApplyRequest(BaseModel):
+    """Backfill / apply a single rule to a doc set.
+
+    - `doc_ids` (subset, e.g. the editor's discovered corpus) takes priority.
+    - Otherwise, iterate paperless docs filtered by `filter` (paperless full-
+      text query). Defaults are safe: dry_run=True, capped scan.
+    """
+    doc_ids: list[int] | None = None
+    filter: str | None = None
+    dry_run: bool = True
+    max_docs: int = 500
+    overwrite_existing: bool = False
 
 
 class DiscoverRequest(BaseModel):
@@ -369,6 +391,116 @@ def create_app(
             "truncated_scan": scanned >= req.scan_limit,
             "prefilter": prefilter,
             "prefilter_auto": not req.search and bool(prefilter),
+        }
+
+    @app.post("/api/post-consume", dependencies=auth)
+    async def post_consume_endpoint(req: PostConsumeRequest) -> dict[str, Any]:
+        """Apply rules to a single doc paperless just consumed.
+
+        Mirrors `runtime/post_consume.py::run()` but skips the per-call
+        Config rebuild and reuses the editor's long-lived PaperlessClient.
+        Called by the paperless container's PAPERLESS_POST_CONSUME_SCRIPT
+        via curl (see scripts/post_consume_via_rules.sh).
+        """
+        rules = load_rules(cfg.rules_dir)
+        if not rules:
+            return {"doc_id": req.doc_id, "matched": False, "skipped": "no rules loaded"}
+        result = await apply_rules_to_document(
+            require_paperless(), req.doc_id, rules
+        )
+        return {
+            "doc_id": result.doc_id,
+            "matched": result.matched,
+            "rule_filename": result.rule_filename,
+            "payload": result.payload,
+            "error": result.error,
+            "skipped_fields": result.skipped_fields,
+        }
+
+    @app.post("/api/rules/{filename}/apply", dependencies=auth)
+    async def apply_rule_endpoint(filename: str, req: ApplyRequest) -> dict[str, Any]:
+        """Apply ONE rule to a doc set — the editor's "Backfill" button.
+
+        Doc set selection:
+          - if `doc_ids` is given: use exactly those (the editor's currently
+            discovered corpus).
+          - else: iterate paperless docs filtered by `filter` (or no filter
+            → first `max_docs` docs).
+
+        Defaults are safe: `dry_run=True` returns the would-be payloads
+        without PATCHing paperless. `max_docs` caps the sweep at 500 per
+        request; the SPA re-clicks for the next batch.
+        """
+        # Load just this rule and pass as a single-element list — matches
+        # the shape apply_rules_to_document expects.
+        try:
+            yaml_text = read_rule(cfg.rules_dir, filename)
+        except RulesIOError as e:
+            raise HTTPException(404, str(e)) from e
+        try:
+            rule = yaml.safe_load(yaml_text)
+        except yaml.YAMLError as e:
+            raise HTTPException(400, f"invalid YAML: {e}") from e
+        if not isinstance(rule, dict):
+            raise HTTPException(400, "rule must be a YAML mapping")
+        rules = [(filename, rule)]
+
+        client = require_paperless()
+        cache = ResolutionCache()
+        results: list[dict[str, Any]] = []
+        scanned = 0
+        truncated = False
+
+        # Resolve doc set
+        if req.doc_ids:
+            doc_ids = list(req.doc_ids)[: req.max_docs]
+            truncated = len(req.doc_ids) > req.max_docs
+        else:
+            doc_ids = []
+            try:
+                async for doc in client.iter_documents(query=req.filter or "", page_size=50):
+                    if len(doc_ids) >= req.max_docs:
+                        truncated = True
+                        break
+                    doc_ids.append(int(doc["id"]))
+            except PaperlessError as e:
+                raise HTTPException(502, str(e)) from e
+
+        # Apply per doc — non-fatal on per-doc errors so one bad regex
+        # doesn't strand the whole sweep.
+        for doc_id in doc_ids:
+            scanned += 1
+            try:
+                r = await apply_rules_to_document(
+                    client, doc_id, rules,
+                    overwrite_existing=req.overwrite_existing,
+                    dry_run=req.dry_run,
+                    cache=cache,
+                )
+            except Exception as e:  # noqa: BLE001 — surface, don't strand
+                results.append({"doc_id": doc_id, "error": f"apply failed: {e}"})
+                continue
+            results.append({
+                "doc_id": r.doc_id,
+                "matched": r.matched,
+                "payload": r.payload,
+                "error": r.error,
+                "dry_run": r.dry_run,
+                "skipped_fields": r.skipped_fields,
+            })
+
+        matched = sum(1 for r in results if r.get("matched"))
+        written = 0 if req.dry_run else sum(1 for r in results if r.get("matched") and not r.get("error"))
+        errors = sum(1 for r in results if r.get("error"))
+        return {
+            "filename": filename,
+            "scanned": scanned,
+            "matched": matched,
+            "written": written,
+            "errors": errors,
+            "dry_run": req.dry_run,
+            "truncated": truncated,
+            "results": results,
         }
 
     @app.post("/api/bootstrap", dependencies=auth)

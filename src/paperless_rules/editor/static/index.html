@@ -774,6 +774,117 @@
     background: var(--bg); color: var(--ink); font-size: 9px;
   }
 
+  /* backfill modal */
+  #backfill-modal {
+    position: fixed; inset: 0; z-index: 200;
+    display: flex; align-items: center; justify-content: center;
+  }
+  #backfill-modal[hidden] { display: none; }
+  #backfill-modal .backdrop {
+    position: absolute; inset: 0; background: rgba(0,0,0,0.45);
+    cursor: pointer;
+  }
+  #backfill-modal .modal {
+    position: relative; background: var(--bg);
+    border: 1px solid var(--ink); border-radius: 5px;
+    padding: 18px 22px; width: 540px; max-width: 92vw;
+    max-height: 80vh; overflow-y: auto;
+    box-shadow: 0 12px 40px rgba(0,0,0,0.25);
+  }
+  #backfill-modal .modal-wide { width: 640px; }
+  #backfill-modal h2 {
+    font-family: var(--mono); font-size: 12px;
+    text-transform: uppercase; letter-spacing: 0.08em;
+    color: var(--ink-soft); margin-bottom: 8px;
+  }
+  #backfill-modal .bf-section {
+    border: 1px solid var(--line); border-radius: 4px;
+    padding: 10px 12px; margin-bottom: 10px;
+    background: var(--bg-card);
+  }
+  #backfill-modal .bf-row {
+    display: block; padding: 3px 0; font-size: 12px;
+  }
+  #backfill-modal .bf-row.indent { margin-left: 22px; }
+  #backfill-modal .bf-row label { cursor: pointer; }
+  #backfill-modal .bf-row input[type=text] {
+    flex: 1; min-width: 220px; margin-left: 6px;
+    background: var(--bg-card); border: 1px solid var(--line-input);
+    border-radius: 3px; padding: 4px 8px;
+    font-family: var(--mono); font-size: 12px;
+  }
+  #backfill-modal .modal-actions {
+    display: flex; justify-content: flex-end; gap: 8px;
+    margin-top: 14px;
+    border-top: 1px solid var(--line); padding-top: 10px;
+  }
+  #backfill-modal button {
+    background: var(--bg-card); border: 1px solid var(--line);
+    color: var(--ink); font-family: var(--mono); font-size: 11px;
+    padding: 5px 14px; border-radius: 3px; cursor: pointer;
+  }
+  #backfill-modal button.primary {
+    background: var(--accent); color: #fff; border-color: var(--accent);
+  }
+  /* "Apply for real" — used after a dry-run review. */
+  #backfill-modal button.danger {
+    background: var(--red); color: #fff; border-color: var(--red);
+    transition: opacity 0.1s;
+  }
+  #backfill-modal button.danger:disabled {
+    opacity: 0.5; cursor: not-allowed;
+  }
+
+  .bf-spinner {
+    width: 32px; height: 32px; border-radius: 50%;
+    border: 3px solid var(--line);
+    border-top-color: var(--accent);
+    margin: 24px auto;
+    animation: bf-spin 0.8s linear infinite;
+  }
+  @keyframes bf-spin { to { transform: rotate(360deg); } }
+
+  .bf-summary {
+    display: flex; gap: 14px; flex-wrap: wrap;
+    background: var(--bg-card); border: 1px solid var(--line);
+    border-radius: 4px; padding: 10px 12px;
+    margin-bottom: 10px; font-size: 12px;
+  }
+  .bf-summary .stat { color: var(--ink-soft); }
+  .bf-summary .stat b { color: var(--ink); margin-left: 4px; }
+  .bf-summary .stat.matched b { color: var(--green); }
+  .bf-summary .stat.errors b  { color: var(--red); }
+  .bf-summary .stat.dry      { color: var(--amber); font-weight: 500; }
+  .bf-summary .stat.truncated { color: var(--amber); font-weight: 500; }
+
+  .bf-rows {
+    max-height: 320px; overflow-y: auto;
+    border: 1px solid var(--line); border-radius: 4px;
+    background: var(--bg-card);
+  }
+  .bf-row-r {
+    display: flex; gap: 8px; padding: 6px 10px;
+    border-bottom: 1px dotted var(--line);
+    font-size: 11px;
+    align-items: center;
+  }
+  .bf-row-r:last-child { border-bottom: none; }
+  .bf-row-r .verdict {
+    font-size: 10px; text-transform: uppercase; letter-spacing: 0.4px;
+    padding: 1px 6px; border-radius: 3px; font-weight: 600;
+    flex-shrink: 0; min-width: 64px; text-align: center;
+  }
+  .bf-row-r .verdict.pass    { background: rgba(45,138,79,0.14); color: var(--green); }
+  .bf-row-r .verdict.dry     { background: rgba(176,123,30,0.14); color: var(--amber); }
+  .bf-row-r .verdict.skip    { background: rgba(0,0,0,0.04); color: var(--ink-soft); }
+  .bf-row-r .verdict.fail    { background: rgba(181,57,57,0.14); color: var(--red); }
+  .bf-row-r .doc-id { color: var(--ink-soft); width: 50px; flex-shrink: 0; font-variant-numeric: tabular-nums; }
+  .bf-row-r .payload {
+    flex: 1; color: var(--ink);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    font-family: var(--mono);
+  }
+
   /* login modal */
   #login-modal {
     position: fixed; inset: 0; z-index: 200;
@@ -887,6 +998,8 @@
           <span class="label match">SELECTION</span>
           <span class="help" id="selection-summary-text">…</span>
           <button class="card-edit" id="btn-edit-selection" type="button">edit selection</button>
+          <button class="card-edit" id="btn-backfill" type="button"
+                  title="apply this rule to docs in paperless">↻ backfill</button>
         </div>
       </div>
 
@@ -1015,6 +1128,60 @@
 <!-- shared datalist of valid field names: 4 reserved built-ins + every
      paperless custom_field. Field-row name inputs use list="field-names". -->
 <datalist id="field-names"></datalist>
+
+<!-- backfill modal — confirms scope + dry-run, runs the call, then renders
+     a per-doc summary using the same outcome-card layout as the right pane. -->
+<div id="backfill-modal" hidden>
+  <div class="backdrop" data-close="backfill"></div>
+  <div class="modal modal-wide">
+    <h2 id="backfill-title">BACKFILL</h2>
+
+    <div id="backfill-config">
+      <p class="muted" style="font-size:11px; margin-bottom: 12px;">
+        Apply <b id="backfill-rule-name">…</b> to a set of paperless documents.
+        Dry-run shows what would change without writing; turn it off only after you've reviewed.
+      </p>
+
+      <div class="bf-section">
+        <div class="bf-row">
+          <label><input type="radio" name="bf-scope" value="corpus" checked>
+            Apply to the <b id="bf-corpus-count">N</b> doc(s) currently in this corpus</label>
+        </div>
+        <div class="bf-row">
+          <label><input type="radio" name="bf-scope" value="library">
+            Apply to all paperless docs matching this rule (capped at 500/click)</label>
+        </div>
+        <div class="bf-row indent">
+          <label class="opt-label" style="display:inline-block; min-width: 110px">paperless filter</label>
+          <input type="text" id="bf-filter" placeholder="optional · e.g. tag:invoice" spellcheck="false">
+        </div>
+      </div>
+
+      <div class="bf-section">
+        <label><input type="checkbox" id="bf-dry-run" checked>
+          <b>Dry run</b> — return the would-be payloads, no PATCH to paperless</label>
+      </div>
+
+      <div class="modal-actions">
+        <button data-close="backfill">Cancel</button>
+        <button id="btn-backfill-go" class="primary">Apply</button>
+      </div>
+    </div>
+
+    <div id="backfill-progress" hidden>
+      <div class="bf-spinner"></div>
+      <p class="muted" id="bf-progress-text">processing…</p>
+    </div>
+
+    <div id="backfill-results" hidden>
+      <div class="bf-summary" id="bf-summary"></div>
+      <div class="bf-rows" id="bf-rows"></div>
+      <div class="modal-actions">
+        <button data-close="backfill">Close</button>
+      </div>
+    </div>
+  </div>
+</div>
 
 <!-- login modal — surfaces on 401 from any /api/* call. The editor's auth
      gate uses paperless's own /api/users/me/, so the token here is the
@@ -1206,6 +1373,10 @@ const api = {
   testRule:         (y, ids)  => api.json("/api/test", { method: "POST", body: JSON.stringify({ yaml: y, doc_ids: ids }) }),
   listCustomFields: ()        => api.json("/api/custom_fields"),
   discover:         body      => api.json("/api/discover", { method: "POST", body: JSON.stringify(body) }),
+  applyRule:        (filename, body) =>
+    api.json(`/api/rules/${encodeURIComponent(filename)}/apply`, {
+      method: "POST", body: JSON.stringify(body),
+    }),
 };
 
 function corpusIds() {
@@ -2427,6 +2598,123 @@ function renderAll() {
   renderRawYaml();
 }
 
+// ── backfill modal ──────────────────────────────────────────────────
+
+function openBackfillModal() {
+  if (!state.currentFilename) {
+    alert("Save the rule first.");
+    return;
+  }
+  $("#backfill-rule-name").textContent = state.currentFilename;
+  $("#bf-corpus-count").textContent = state.docs.length;
+  $("#bf-filter").value = "";
+  $("#bf-dry-run").checked = true;
+  // reset views
+  $("#backfill-config").hidden = false;
+  $("#backfill-progress").hidden = true;
+  $("#backfill-results").hidden = true;
+  // restore primary "Apply" button (might have been swapped to "Apply for real")
+  const goBtn = $("#btn-backfill-go");
+  goBtn.textContent = "Apply";
+  goBtn.className = "primary";
+  goBtn.disabled = false;
+  $("#backfill-modal").hidden = false;
+}
+
+function closeBackfillModal() { $("#backfill-modal").hidden = true; }
+
+async function runBackfill() {
+  const scope = document.querySelector('input[name="bf-scope"]:checked').value;
+  const dryRun = $("#bf-dry-run").checked;
+  const body = { dry_run: dryRun };
+  if (scope === "corpus") {
+    body.doc_ids = corpusIds();
+    if (!body.doc_ids.length) {
+      alert("No docs in the corpus — type a match regex first or pick the library scope.");
+      return;
+    }
+  } else {
+    body.filter = $("#bf-filter").value.trim() || null;
+  }
+  // Switch view to progress
+  $("#backfill-config").hidden = true;
+  $("#backfill-progress").hidden = false;
+  $("#backfill-results").hidden = true;
+  $("#bf-progress-text").textContent = scope === "corpus"
+    ? `applying to ${body.doc_ids.length} doc(s)…`
+    : "scanning paperless and applying…";
+  let result;
+  try {
+    result = await api.applyRule(state.currentFilename, body);
+  } catch (e) {
+    if (e.message === "auth required") return;     // login modal already popped
+    $("#backfill-progress").hidden = true;
+    $("#backfill-config").hidden = false;
+    alert(`Backfill failed: ${e.message}`);
+    return;
+  }
+  renderBackfillResults(result, dryRun);
+}
+
+function renderBackfillResults(r, wasDryRun) {
+  $("#backfill-progress").hidden = true;
+  $("#backfill-results").hidden = false;
+
+  // Summary
+  const summary = $("#bf-summary");
+  const truncatedBit = r.truncated ? '<span class="stat truncated">⚠ truncated · re-run for next batch</span>' : "";
+  const dryBit = wasDryRun ? '<span class="stat dry">DRY RUN — nothing written</span>' : "";
+  summary.innerHTML = `
+    <span class="stat">scanned: <b>${r.scanned}</b></span>
+    <span class="stat matched">matched: <b>${r.matched}</b></span>
+    <span class="stat">written: <b>${r.written}</b></span>
+    <span class="stat errors">errors: <b>${r.errors}</b></span>
+    ${truncatedBit}
+    ${dryBit}
+  `;
+
+  // Per-doc rows
+  const rowsEl = $("#bf-rows");
+  rowsEl.innerHTML = "";
+  for (const d of r.results) {
+    const row = document.createElement("div");
+    row.className = "bf-row-r";
+    let verdict, verdictClass;
+    if (d.error)              { verdict = "error";    verdictClass = "fail"; }
+    else if (!d.matched)      { verdict = "no match"; verdictClass = "skip"; }
+    else if (wasDryRun)       { verdict = "dry";      verdictClass = "dry"; }
+    else                      { verdict = "patched";  verdictClass = "pass"; }
+
+    const payload = d.error
+      ? d.error
+      : d.payload && Object.keys(d.payload).length
+        ? Object.entries(d.payload).map(([k,v]) => `${k}=${typeof v === "object" ? JSON.stringify(v) : String(v)}`).join(" · ")
+        : "—";
+    row.innerHTML = `
+      <span class="verdict ${verdictClass}">${esc(verdict)}</span>
+      <span class="doc-id">#${d.doc_id}</span>
+      <span class="payload" title="${escAttr(payload)}">${esc(payload)}</span>
+    `;
+    rowsEl.appendChild(row);
+  }
+
+  // Decide next action — if it was a dry run, offer "Apply for real"
+  // (red, with a brief delay so the user has to read the summary).
+  const goBtn = $("#btn-backfill-go");
+  if (wasDryRun && r.matched > 0 && r.errors === 0) {
+    goBtn.textContent = `Apply for real (${r.matched} doc${r.matched === 1 ? "" : "s"})`;
+    goBtn.className = "danger";
+    goBtn.disabled = true;
+    setTimeout(() => { goBtn.disabled = false; }, 2500);
+    // make the config view visible again so the user can re-toggle dry-run
+    $("#bf-dry-run").checked = false;
+    $("#backfill-config").hidden = false;
+  } else {
+    // Hide config — user got their result.
+    $("#backfill-config").hidden = true;
+  }
+}
+
 // ── auth (login modal + logout) ─────────────────────────────────────
 
 let authRequired = true;     // updated from /api/health on boot
@@ -2965,6 +3253,11 @@ function wire() {
     b.addEventListener("click", () => setStep(+b.dataset.step));
   });
   $("#btn-edit-selection").addEventListener("click", () => setStep(1));
+  $("#btn-backfill").addEventListener("click", openBackfillModal);
+  $("#btn-backfill-go").addEventListener("click", runBackfill);
+  document.querySelectorAll('#backfill-modal [data-close="backfill"]').forEach(el => {
+    el.addEventListener("click", closeBackfillModal);
+  });
 
   // login modal + logout
   $("#btn-login").addEventListener("click", () => {
