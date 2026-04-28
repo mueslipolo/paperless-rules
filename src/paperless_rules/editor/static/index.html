@@ -2722,8 +2722,9 @@ function renderRawYaml() {
   const colored = yaml
     .split("\n")
     .map(l => {
-      if (/^\s*#/.test(l)) return `<span class="c">${esc(l)}</span>`;
-      return l.replace(/^([A-Za-z_][A-Za-z0-9_]*)(\s*:)/, '<span class="k">$1</span>$2')
+      const e = esc(l);
+      if (/^\s*#/.test(l)) return `<span class="c">${e}</span>`;
+      return e.replace(/^([A-Za-z_][A-Za-z0-9_]*)(\s*:)/, '<span class="k">$1</span>$2')
               .replace(/^( {2,4})([A-Za-z_][A-Za-z0-9_ ]*?)(\s*:)/, '$1<span class="k">$2</span>$3');
     })
     .join("\n");

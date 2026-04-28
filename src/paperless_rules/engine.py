@@ -39,13 +39,20 @@ RESERVED_FIELDS = ("correspondent", "document_type", "tags", "title", "created")
 
 # Thousand-separator chars commonly emitted by OCR (ASCII apostrophe,
 # typographic apostrophe, modifier-letter apostrophe, NBSP).
-_NOISE_RE = re.compile(r"[\s'’ʼ ]")
+_NOISE_RE = re.compile(r"[\s'’ʼ ]")  # noqa: RUF001
 
 _BUILTIN_DATES = [
-    "%d.%m.%Y", "%d.%m.%y", "%d-%m-%Y", "%d/%m/%Y",
-    "%Y-%m-%d", "%Y/%m/%d",
-    "%d %B %Y", "%d. %B %Y", "%d %b %Y",
-    "%d-%b-%Y", "%d-%B-%Y",
+    "%d.%m.%Y",
+    "%d.%m.%y",
+    "%d-%m-%Y",
+    "%d/%m/%Y",
+    "%Y-%m-%d",
+    "%Y/%m/%d",
+    "%d %B %Y",
+    "%d. %B %Y",
+    "%d %b %Y",
+    "%d-%b-%Y",
+    "%d-%B-%Y",
 ]
 
 _TEMPLATE_RE = re.compile(r"\{([a-zA-Z_][a-zA-Z0-9_]*)\}")
@@ -77,12 +84,41 @@ def _coerce_date(raw: str, formats: list[str]) -> str | None:
     return None
 
 
+_TRUTHY = {"true", "yes", "1", "on", "oui", "ja", "y", "x", "✓"}
+_FALSY = {"false", "no", "0", "off", "non", "nein", "n", ""}
+
+
+def _coerce_int(raw: str) -> int | None:
+    cleaned = _NOISE_RE.sub("", raw).replace(",", "")
+    if not cleaned or "." in cleaned:
+        return None
+    try:
+        return int(cleaned)
+    except ValueError:
+        return None
+
+
+def _coerce_bool(raw: str) -> bool | None:
+    s = raw.strip().lower()
+    if s in _TRUTHY:
+        return True
+    if s in _FALSY:
+        return False
+    return None
+
+
 def _coerce(raw: str | None, ftype: str, formats: list[str]) -> tuple[Any, str | None]:
     if raw is None:
         return None, "no value"
     if ftype == "float":
         v = _coerce_float(raw)
         return (v, None) if v is not None else (None, f"could not parse {raw!r} as float")
+    if ftype == "int":
+        iv = _coerce_int(str(raw))
+        return (iv, None) if iv is not None else (None, f"could not parse {raw!r} as int")
+    if ftype == "bool":
+        bv = _coerce_bool(str(raw))
+        return (bv, None) if bv is not None else (None, f"could not parse {raw!r} as bool")
     if ftype == "date":
         v = _coerce_date(raw, formats)
         return (v, None) if v is not None else (None, f"could not parse {raw!r} as date")
@@ -115,9 +151,15 @@ def _safe_finditer(pattern: str, text: str) -> tuple[list[Any], str | None]:
 
 def _empty_result(ftype: str, internal: bool) -> dict[str, Any]:
     return {
-        "ok": False, "value": None, "raw": None, "type": ftype,
-        "kind": "regex", "internal": internal,
-        "pattern": None, "groups": None, "error": None,
+        "ok": False,
+        "value": None,
+        "raw": None,
+        "type": ftype,
+        "kind": "regex",
+        "internal": internal,
+        "pattern": None,
+        "groups": None,
+        "error": None,
     }
 
 
@@ -137,9 +179,7 @@ def _spec_kind(spec: Any) -> str:
 # ── field evaluators ─────────────────────────────────────────────────
 
 
-def _eval_regex_field(
-    name: str, spec: Any, text: str, formats: list[str]
-) -> dict[str, Any]:
+def _eval_regex_field(name: str, spec: Any, text: str, formats: list[str]) -> dict[str, Any]:
     """The classic capture-group regex with optional transforms."""
     if isinstance(spec, str):
         patterns: list[str] = [spec]
@@ -154,14 +194,18 @@ def _eval_regex_field(
     elif isinstance(spec, dict):
         regex = spec.get("regex")
         patterns = (
-            [regex] if isinstance(regex, str)
-            else [str(p) for p in regex] if isinstance(regex, list)
+            [regex]
+            if isinstance(regex, str)
+            else [str(p) for p in regex]
+            if isinstance(regex, list)
             else []
         )
         ftype = str(spec.get("type") or "str")
-        opts = {k: spec[k] for k in
-                ("default", "match", "pick", "map", "aggregate", "combine")
-                if k in spec}
+        opts = {
+            k: spec[k]
+            for k in ("default", "match", "pick", "map", "aggregate", "combine")
+            if k in spec
+        }
         internal = bool(spec.get("internal", False))
     else:
         return _empty_result("str", False) | {"error": "invalid spec"}
@@ -189,7 +233,8 @@ def _eval_regex_field(
                     groups=list(m.groups()) if m.groups() else None,
                     raw=m.group(0),
                     value=value if coerce_err is None else const,
-                    error=coerce_err, ok=coerce_err is None,
+                    error=coerce_err,
+                    ok=coerce_err is None,
                 )
                 break
         else:
@@ -215,9 +260,11 @@ def _eval_regex_field(
             for m in ms:
                 captures.append(m.group(1) if m.groups() else m.group(0))
         if op == "count":
-            result.update(raw=str(len(captures)),
-                          value=float(len(captures)) if ftype == "float" else len(captures),
-                          ok=True)
+            result.update(
+                raw=str(len(captures)),
+                value=float(len(captures)) if ftype == "float" else len(captures),
+                ok=True,
+            )
         elif op in ("sum", "min", "max") and captures:
             nums = [n for n in (_coerce_float(c) for c in captures) if n is not None]
             if nums:
@@ -253,7 +300,10 @@ def _eval_regex_field(
             combined = sep.join(caps)
             value, err = _coerce(combined, ftype, formats)
             result.update(
-                pattern=first_pat, raw=combined, value=value, error=err,
+                pattern=first_pat,
+                raw=combined,
+                value=value,
+                error=err,
                 ok=value is not None and err is None,
             )
         else:
@@ -275,9 +325,11 @@ def _eval_regex_field(
             if m:
                 value, coerce_err = _coerce(str(const), ftype, formats)
                 result.update(
-                    pattern=pat, raw=m.group(0),
+                    pattern=pat,
+                    raw=m.group(0),
                     value=value if coerce_err is None else const,
-                    error=coerce_err, ok=coerce_err is None,
+                    error=coerce_err,
+                    ok=coerce_err is None,
                 )
                 break
         else:
@@ -331,7 +383,9 @@ def _eval_regex_field(
         result.update(
             pattern=chosen_pat,
             groups=list(m.groups()) if m.groups() else None,
-            raw=str(cap), value=value, error=err,
+            raw=str(cap),
+            value=value,
+            error=err,
             ok=value is not None and err is None,
         )
     elif result["error"] is None:
@@ -340,18 +394,22 @@ def _eval_regex_field(
     return result
 
 
-def _eval_value_field(
-    name: str, spec: dict[str, Any], formats: list[str]
-) -> dict[str, Any]:
+def _eval_value_field(name: str, spec: dict[str, Any], formats: list[str]) -> dict[str, Any]:
     """Constant value, coerced by type. Lists pass through as-is (for tags)."""
     ftype = str(spec.get("type") or "str")
     internal = bool(spec.get("internal", False))
     raw = spec["value"]
     if isinstance(raw, list):
         return {
-            "ok": True, "value": list(raw), "raw": str(raw), "type": ftype,
-            "kind": "value", "internal": internal,
-            "pattern": None, "groups": None, "error": None,
+            "ok": True,
+            "value": list(raw),
+            "raw": str(raw),
+            "type": ftype,
+            "kind": "value",
+            "internal": internal,
+            "pattern": None,
+            "groups": None,
+            "error": None,
         }
     if raw is None:
         return _empty_result(ftype, internal) | {"kind": "value", "error": "value is null"}
@@ -359,9 +417,13 @@ def _eval_value_field(
     return {
         "ok": err is None,
         "value": value if err is None else raw,
-        "raw": str(raw), "type": ftype,
-        "kind": "value", "internal": internal,
-        "pattern": None, "groups": None, "error": err,
+        "raw": str(raw),
+        "type": ftype,
+        "kind": "value",
+        "internal": internal,
+        "pattern": None,
+        "groups": None,
+        "error": err,
     }
 
 
@@ -379,7 +441,8 @@ def _resolve_template(
         return _empty_result("str", False) | {"kind": "template", "error": "not a template"}
     if name in visiting:
         return _empty_result(str(spec.get("type") or "str"), bool(spec.get("internal"))) | {
-            "kind": "template", "error": "template cycle"
+            "kind": "template",
+            "error": "template cycle",
         }
     visiting.add(name)
     template = str(spec["template"])
@@ -389,8 +452,12 @@ def _resolve_template(
     def sub(m: re.Match[str]) -> str:
         ref = m.group(1)
         # Lazy-resolve a template-referenced template if it hasn't been computed yet.
-        if ref in fields_spec and ref not in fields and isinstance(fields_spec[ref], dict) \
-                and "template" in fields_spec[ref]:
+        if (
+            ref in fields_spec
+            and ref not in fields
+            and isinstance(fields_spec[ref], dict)
+            and "template" in fields_spec[ref]
+        ):
             fields[ref] = _resolve_template(ref, fields_spec, fields, formats, visiting)
         f = fields.get(ref)
         if f and f.get("ok") and f["value"] is not None:
@@ -403,9 +470,12 @@ def _resolve_template(
     return {
         "ok": err is None and bool(rendered),
         "value": value if err is None else rendered,
-        "raw": rendered, "type": ftype,
-        "kind": "template", "internal": internal,
-        "pattern": None, "groups": None,
+        "raw": rendered,
+        "type": ftype,
+        "kind": "template",
+        "internal": internal,
+        "pattern": None,
+        "groups": None,
         "error": err if err else (None if rendered else "template rendered empty"),
     }
 
@@ -429,7 +499,8 @@ def _apply_default(
     result.update(
         raw=raw,
         value=value if err is None else opts["default"],
-        error=err, ok=err is None,
+        error=err,
+        ok=err is None,
     )
 
 
@@ -466,19 +537,22 @@ def extract_with_rule(text: str, rule: Rule, *, trace: bool | None = None) -> Ex
 
     match_spec = rule.get("match")
     match_patterns = (
-        [match_spec] if isinstance(match_spec, str)
-        else [str(p) for p in match_spec] if isinstance(match_spec, list)
+        [match_spec]
+        if isinstance(match_spec, str)
+        else [str(p) for p in match_spec]
+        if isinstance(match_spec, list)
         else []
     )
     match_patterns = [p for p in match_patterns if p]
-    missing = [p for p in match_patterns
-               if not re.search(p, text, re.MULTILINE | re.DOTALL)]
+    missing = [p for p in match_patterns if not re.search(p, text, re.MULTILINE | re.DOTALL)]
 
     # Empty exclude patterns are ignored (they'd match everything).
     exclude_spec = rule.get("exclude")
     excludes = (
-        [exclude_spec] if isinstance(exclude_spec, str)
-        else [str(p) for p in exclude_spec] if isinstance(exclude_spec, list)
+        [exclude_spec]
+        if isinstance(exclude_spec, str)
+        else [str(p) for p in exclude_spec]
+        if isinstance(exclude_spec, list)
         else []
     )
     excludes = [e for e in excludes if e]
@@ -492,16 +566,21 @@ def extract_with_rule(text: str, rule: Rule, *, trace: bool | None = None) -> Ex
         for p in match_patterns:
             hit = p not in missing
             line = f"match {p!r} → {'HIT' if hit else 'MISS'}"
-            trace_lines.append(line); log_trace.info(line)
+            trace_lines.append(line)
+            log_trace.info(line)
         for e in excludes:
             fired = e == excluded_by
             line = f"exclude {e!r} → {'FIRED (rule disqualified)' if fired else 'no match'}"
-            trace_lines.append(line); log_trace.info(line)
-        verdict = "MATCHED" if matched else (
-            f"EXCLUDED by {excluded_by!r}" if excluded_by else "no match"
+            trace_lines.append(line)
+            log_trace.info(line)
+        verdict = (
+            "MATCHED"
+            if matched
+            else (f"EXCLUDED by {excluded_by!r}" if excluded_by else "no match")
         )
         line = f"verdict: {verdict}"
-        trace_lines.append(line); log_trace.info(line)
+        trace_lines.append(line)
+        log_trace.info(line)
 
     fields_spec = rule.get("fields") or {}
     options = rule.get("options") or {}
@@ -538,10 +617,12 @@ def extract_with_rule(text: str, rule: Rule, *, trace: bool | None = None) -> Ex
                 f"{'OK' if fres.get('ok') else 'FAIL'} value={sample!r}"
                 + (f" error={err!r}" if err else "")
             )
-            trace_lines.append(line); log_trace.info(line)
+            trace_lines.append(line)
+            log_trace.info(line)
         if required:
             line = f"required {required} → {'OK' if required_ok else 'NOT MET'}"
-            trace_lines.append(line); log_trace.info(line)
+            trace_lines.append(line)
+            log_trace.info(line)
 
     result: ExtractionResult = {
         "matched": matched,

@@ -131,20 +131,25 @@ async def apply_rules_to_document(
 
     corr_field = _ok_field(extraction, "correspondent")
     if corr_field and (overwrite_existing or not doc.get("correspondent")):
-        cid = await _resolve(client, "correspondents", str(corr_field["value"]), cache.correspondents)
+        cid = await _resolve(
+            client, "correspondents", str(corr_field["value"]), cache.correspondents
+        )
         if cid is not None:
             payload["correspondent"] = cid
 
     dt_field = _ok_field(extraction, "document_type")
     if dt_field and (overwrite_existing or not doc.get("document_type")):
-        dtid = await _resolve(client, "document_types", str(dt_field["value"]), cache.document_types)
+        dtid = await _resolve(
+            client, "document_types", str(dt_field["value"]), cache.document_types
+        )
         if dtid is not None:
             payload["document_type"] = dtid
 
     tags_field = _ok_field(extraction, "tags")
     if tags_field:
         rule_tag_names = (
-            tags_field["value"] if isinstance(tags_field["value"], list)
+            tags_field["value"]
+            if isinstance(tags_field["value"], list)
             else [str(tags_field["value"])]
         )
         existing_tag_ids = list(doc.get("tags") or [])
@@ -192,24 +197,37 @@ async def apply_rules_to_document(
 
     if not payload:
         return ApplyResult(
-            doc_id=doc_id, matched=True, rule_filename=rule_filename,
+            doc_id=doc_id,
+            matched=True,
+            rule_filename=rule_filename,
             skipped_fields=skipped,
         )
 
     if dry_run:
         return ApplyResult(
-            doc_id=doc_id, matched=True, rule_filename=rule_filename,
-            payload=payload, dry_run=True, skipped_fields=skipped,
+            doc_id=doc_id,
+            matched=True,
+            rule_filename=rule_filename,
+            payload=payload,
+            dry_run=True,
+            skipped_fields=skipped,
         )
 
     try:
         await client.patch_document(doc_id, payload)
     except PaperlessError as e:
         return ApplyResult(
-            doc_id=doc_id, matched=True, rule_filename=rule_filename,
-            payload=payload, error=str(e), skipped_fields=skipped,
+            doc_id=doc_id,
+            matched=True,
+            rule_filename=rule_filename,
+            payload=payload,
+            error=str(e),
+            skipped_fields=skipped,
         )
     return ApplyResult(
-        doc_id=doc_id, matched=True, rule_filename=rule_filename,
-        payload=payload, skipped_fields=skipped,
+        doc_id=doc_id,
+        matched=True,
+        rule_filename=rule_filename,
+        payload=payload,
+        skipped_fields=skipped,
     )

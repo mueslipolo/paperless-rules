@@ -3,30 +3,39 @@
 from __future__ import annotations
 
 import time
+from collections import OrderedDict
 from typing import Any
 
 from fastapi import HTTPException, Request
 
 from paperless_rules.paperless_client import PaperlessClient, PaperlessError
 
-_CACHE: dict[str, tuple[dict[str, Any], float]] = {}
+_CACHE: OrderedDict[str, tuple[dict[str, Any], float]] = OrderedDict()
 _TTL_SECONDS = 60.0
+# Bound the cache to defeat token-spray attempts that could otherwise
+# grow it without limit. Real workloads have one or two active tokens.
+_CACHE_MAX = 256
 
 
 async def _verify(token: str, client: PaperlessClient) -> dict[str, Any] | None:
     now = time.monotonic()
     cached = _CACHE.get(token)
     if cached and cached[1] > now:
+        _CACHE.move_to_end(token)
         return cached[0]
     user = await client.verify_token(token)
     if user is not None:
         _CACHE[token] = (user, now + _TTL_SECONDS)
+        _CACHE.move_to_end(token)
+        while len(_CACHE) > _CACHE_MAX:
+            _CACHE.popitem(last=False)
     return user
 
 
 def make_auth_dep(state: Any, *, required: bool):
     """FastAPI dep that requires a valid paperless token. ``required=False``
     makes it a no-op (trusted LAN, tests)."""
+
     async def dep(request: Request) -> dict[str, Any] | None:
         if not required:
             return None

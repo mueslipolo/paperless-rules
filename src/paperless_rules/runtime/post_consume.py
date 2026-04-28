@@ -37,7 +37,9 @@ async def run(config: Config | None = None, doc_id: int | None = None) -> int:
         log.info("no rules in %s", cfg.rules_dir)
         return 0
 
-    async with PaperlessClient(cfg.paperless_url, cfg.paperless_token, verify=cfg.httpx_verify) as client:
+    async with PaperlessClient(
+        cfg.paperless_url, cfg.paperless_token, verify=cfg.httpx_verify
+    ) as client:
         result = await apply_rules_to_document(client, doc_id, rules)
 
     if result.error:

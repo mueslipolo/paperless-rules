@@ -10,6 +10,7 @@ Each test:
 These tests exercise the same code path as `paperless-rules apply <id>`
 and `paperless-rules post-consume`, just driven from Python.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -53,7 +54,8 @@ def _doc_id_by_title(seeded_doc_ids, admin_token, title_substring: str) -> int:
     headers = {"Authorization": f"Token {admin_token}"}
     r = httpx.get(
         f"{PAPERLESS_URL}/api/documents/?page_size=100",
-        headers=headers, timeout=10.0,
+        headers=headers,
+        timeout=10.0,
     )
     r.raise_for_status()
     for d in r.json()["results"]:
@@ -92,10 +94,12 @@ class TestApplyHappyPath:
 
         # Re-fetch the doc and verify metadata actually landed.
         from tests.e2e.conftest import PAPERLESS_URL
+
         headers = {"Authorization": f"Token {admin_token}"}
         r = httpx.get(
             f"{PAPERLESS_URL}/api/documents/{doc_id}/",
-            headers=headers, timeout=10.0,
+            headers=headers,
+            timeout=10.0,
         )
         r.raise_for_status()
         doc = r.json()
@@ -147,10 +151,12 @@ class TestNoMatch:
 
         # Snapshot the doc before — runtime must leave it identical.
         from tests.e2e.conftest import PAPERLESS_URL
+
         headers = {"Authorization": f"Token {admin_token}"}
         before = httpx.get(
             f"{PAPERLESS_URL}/api/documents/{doc_id}/",
-            headers=headers, timeout=10.0,
+            headers=headers,
+            timeout=10.0,
         ).json()
 
         client = paperless_client_factory()
@@ -164,7 +170,8 @@ class TestNoMatch:
 
         after = httpx.get(
             f"{PAPERLESS_URL}/api/documents/{doc_id}/",
-            headers=headers, timeout=10.0,
+            headers=headers,
+            timeout=10.0,
         ).json()
         # Tags / correspondent / document_type unchanged.
         assert before.get("correspondent") == after.get("correspondent")

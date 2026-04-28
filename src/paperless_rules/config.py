@@ -46,14 +46,16 @@ class Config:
         return cls(
             paperless_url=e.get("PAPERLESS_URL", "").rstrip("/"),
             paperless_token=e.get("PAPERLESS_TOKEN", ""),
-            paperless_verify_ssl=e.get("PAPERLESS_VERIFY_SSL", "true").lower() in ("true", "1", "yes", "on"),
+            paperless_verify_ssl=e.get("PAPERLESS_VERIFY_SSL", "true").lower()
+            in ("true", "1", "yes", "on"),
             paperless_ca_bundle=e.get("PAPERLESS_CA_BUNDLE", ""),
             rules_dir=Path(e.get("RULES_DIR", "./rules")),
             state_dir=Path(e.get("STATE_DIR", "./state")),
             editor_enabled=e.get("EDITOR_ENABLED", "true").lower() in ("true", "1", "yes", "on"),
             editor_host=e.get("EDITOR_HOST", "0.0.0.0"),
             editor_port=int(e.get("EDITOR_PORT", "8765")),
-            editor_auth_required=e.get("EDITOR_AUTH_REQUIRED", "true").lower() in ("true", "1", "yes", "on"),
+            editor_auth_required=e.get("EDITOR_AUTH_REQUIRED", "true").lower()
+            in ("true", "1", "yes", "on"),
             editor_readonly=e.get("EDITOR_READONLY", "false").lower() in ("true", "1", "yes", "on"),
             runtime_mode=e.get("RUNTIME_MODE", "disabled"),
             poll_interval_seconds=int(e.get("POLL_INTERVAL_SECONDS", "60")),

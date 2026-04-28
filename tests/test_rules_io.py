@@ -1,4 +1,5 @@
 """YAML rule file I/O tests — path-traversal safety, atomic saves."""
+
 from __future__ import annotations
 
 import pytest
@@ -18,10 +19,19 @@ def test_validate_accepts(name):
     assert validate_filename(name) == name
 
 
-@pytest.mark.parametrize("name", [
-    "../etc/passwd", "subdir/rule.yml", r"subdir\rule.yml",
-    "..yml", "", "règle.yml", "rule", "rule.txt",
-])
+@pytest.mark.parametrize(
+    "name",
+    [
+        "../etc/passwd",
+        "subdir/rule.yml",
+        r"subdir\rule.yml",
+        "..yml",
+        "",
+        "règle.yml",
+        "rule",
+        "rule.txt",
+    ],
+)
 def test_validate_rejects(name):
     with pytest.raises(RulesIOError):
         validate_filename(name)
@@ -29,14 +39,15 @@ def test_validate_rejects(name):
 
 def test_list_alphabetical_with_summary(tmp_path):
     (tmp_path / "10_b.yml").write_text("match: B\n")
-    (tmp_path / "01_a.yml").write_text(
-        "match: A\nfields:\n  amount: { regex: 'X', type: float }\n"
-    )
+    (tmp_path / "01_a.yml").write_text("match: A\nfields:\n  amount: { regex: 'X', type: float }\n")
     rules = list_rules(tmp_path)
     assert [r["filename"] for r in rules] == ["01_a.yml", "10_b.yml"]
     assert rules[0] == {
-        "filename": "01_a.yml", "name": "a",
-        "match": "A", "field_count": 1, "enabled": True,
+        "filename": "01_a.yml",
+        "name": "a",
+        "match": "A",
+        "field_count": 1,
+        "enabled": True,
     }
 
 
@@ -70,10 +81,13 @@ def test_write_creates_dir_and_overwrites(tmp_path):
     assert read_rule(target, "r.yml") == "issuer: B\n"
 
 
-@pytest.mark.parametrize("yaml_text,err_match", [
-    (":\n  : not valid", "invalid YAML"),
-    ("- a\n- b\n", "mapping"),  # top level must be a mapping
-])
+@pytest.mark.parametrize(
+    "yaml_text,err_match",
+    [
+        (":\n  : not valid", "invalid YAML"),
+        ("- a\n- b\n", "mapping"),  # top level must be a mapping
+    ],
+)
 def test_write_rejects(tmp_path, yaml_text, err_match):
     with pytest.raises(RulesIOError, match=err_match):
         write_rule(tmp_path, "r.yml", yaml_text)

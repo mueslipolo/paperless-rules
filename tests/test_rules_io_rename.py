@@ -4,6 +4,7 @@ Backs the editor's "hide the filename, show a display name" + "drag-to-reorder"
 features. The numeric NN_ prefix is the rule's effective evaluation order
 (load_rules sorts by filename), so renumbering on drop is the actual semantic.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -29,17 +30,20 @@ def _w(p: Path, name: str, body: str = "match: 'foo'\nfields: {}\n") -> Path:
 # ── slugify ─────────────────────────────────────────────────────────
 
 
-@pytest.mark.parametrize("inp,out", [
-    ("Acme Telecom",        "acme_telecom"),
-    ("Acme — Télécom!",     "acme_t_l_com"),       # ASCII-only
-    ("  spaces  trim  ",    "spaces_trim"),
-    ("UPPERCASE",           "uppercase"),
-    ("dash-separated",      "dash_separated"),
-    ("",                    "rule"),                 # empty fallback
-    ("///",                 "rule"),                 # all-non-alnum fallback
-    ("Foo123",              "foo123"),
-    ("Multiple___under",    "multiple_under"),
-])
+@pytest.mark.parametrize(
+    "inp,out",
+    [
+        ("Acme Telecom", "acme_telecom"),
+        ("Acme — Télécom!", "acme_t_l_com"),  # ASCII-only
+        ("  spaces  trim  ", "spaces_trim"),
+        ("UPPERCASE", "uppercase"),
+        ("dash-separated", "dash_separated"),
+        ("", "rule"),  # empty fallback
+        ("///", "rule"),  # all-non-alnum fallback
+        ("Foo123", "foo123"),
+        ("Multiple___under", "multiple_under"),
+    ],
+)
 def test_slugify(inp, out):
     assert slugify(inp) == out
 
@@ -112,7 +116,7 @@ def test_reorder_renumbers_prefixes(tmp_path: Path):
     assert renamed == {
         "03_gamma.yml": "01_gamma.yml",
         "01_alpha.yml": "02_alpha.yml",
-        "02_beta.yml":  "03_beta.yml",
+        "02_beta.yml": "03_beta.yml",
     }
 
 
@@ -161,3 +165,15 @@ def test_list_rules_explicit_name_wins(tmp_path: Path):
     _w(tmp_path, "01_anything.yml", "name: 'Acme Télécom (Europe)'\nmatch: 'x'\n")
     [r] = list_rules(tmp_path)
     assert r["name"] == "Acme Télécom (Europe)"
+
+
+def test_reorder_recovers_stranded_tmps(tmp_path: Path):
+    """A crash between the two rename passes leaves *.reorder.tmp files; the
+    next reorder must promote them so the rule doesn't disappear."""
+    _w(tmp_path, "01_a.yml")
+    stranded = tmp_path / "02_b.yml.reorder.tmp"
+    stranded.write_text("match: 'foo'\nfields: {}\n", encoding="utf-8")
+
+    reorder_rules(tmp_path, ["01_a.yml"])
+    files = sorted(p.name for p in tmp_path.iterdir())
+    assert files == ["01_a.yml", "02_b.yml"]

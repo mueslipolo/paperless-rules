@@ -4,6 +4,7 @@ Both endpoints write to paperless via apply_rules_to_document, so we use a
 richer fake than test_editor_api.py — it tracks patch_document calls so we
 can assert dry-run vs commit behaviour.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -38,7 +39,9 @@ class FakePaperless:
 
     async def list_documents(self, query="", page=1, page_size=25) -> dict[str, Any]:
         return {
-            "count": len(self.docs), "next": None, "previous": None,
+            "count": len(self.docs),
+            "next": None,
+            "previous": None,
             "results": list(self.docs.values()),
         }
 
@@ -51,8 +54,11 @@ class FakePaperless:
 
     async def create(self, kind: str, payload: dict[str, Any]):
         self._next_id += 1
-        return {"id": self._next_id, "name": payload.get("name"),
-                "data_type": payload.get("data_type")}
+        return {
+            "id": self._next_id,
+            "name": payload.get("name"),
+            "data_type": payload.get("data_type"),
+        }
 
     async def list_custom_fields(self):
         return []
@@ -67,14 +73,37 @@ class FakePaperless:
 
 @pytest.fixture
 def fake() -> FakePaperless:
-    return FakePaperless({
-        1: {"id": 1, "title": "Acme #1", "content": ACME,
-            "correspondent": None, "document_type": None, "tags": [], "custom_fields": []},
-        2: {"id": 2, "title": "Acme #2", "content": ACME.replace("4521", "4522"),
-            "correspondent": None, "document_type": None, "tags": [], "custom_fields": []},
-        3: {"id": 3, "title": "Other vendor", "content": "different doc, no match here",
-            "correspondent": None, "document_type": None, "tags": [], "custom_fields": []},
-    })
+    return FakePaperless(
+        {
+            1: {
+                "id": 1,
+                "title": "Acme #1",
+                "content": ACME,
+                "correspondent": None,
+                "document_type": None,
+                "tags": [],
+                "custom_fields": [],
+            },
+            2: {
+                "id": 2,
+                "title": "Acme #2",
+                "content": ACME.replace("4521", "4522"),
+                "correspondent": None,
+                "document_type": None,
+                "tags": [],
+                "custom_fields": [],
+            },
+            3: {
+                "id": 3,
+                "title": "Other vendor",
+                "content": "different doc, no match here",
+                "correspondent": None,
+                "document_type": None,
+                "tags": [],
+                "custom_fields": [],
+            },
+        }
+    )
 
 
 @pytest.fixture
@@ -90,7 +119,8 @@ def app_with_rule(tmp_path: Path, fake: FakePaperless):
         encoding="utf-8",
     )
     cfg = Config(
-        rules_dir=rules_dir, state_dir=tmp_path / "state",
+        rules_dir=rules_dir,
+        state_dir=tmp_path / "state",
         editor_auth_required=False,
     )
     return create_app(cfg, paperless_client=fake), fake
@@ -132,12 +162,16 @@ def test_post_consume_no_rules_skipped(tmp_path: Path, fake: FakePaperless):
 def test_apply_dry_run_corpus_no_patches(app_with_rule):
     app, fake = app_with_rule
     with TestClient(app) as c:
-        body = c.post("/api/rules/01_acme.yml/apply", json={
-            "doc_ids": [1, 2, 3], "dry_run": True,
-        }).json()
+        body = c.post(
+            "/api/rules/01_acme.yml/apply",
+            json={
+                "doc_ids": [1, 2, 3],
+                "dry_run": True,
+            },
+        ).json()
     assert body["scanned"] == 3
-    assert body["matched"] == 2          # 1 + 2 match, 3 doesn't
-    assert body["written"] == 0          # dry-run never writes
+    assert body["matched"] == 2  # 1 + 2 match, 3 doesn't
+    assert body["written"] == 0  # dry-run never writes
     assert body["dry_run"] is True
     assert fake.patches == []
 
@@ -145,9 +179,13 @@ def test_apply_dry_run_corpus_no_patches(app_with_rule):
 def test_apply_commit_corpus_writes(app_with_rule):
     app, fake = app_with_rule
     with TestClient(app) as c:
-        body = c.post("/api/rules/01_acme.yml/apply", json={
-            "doc_ids": [1, 2], "dry_run": False,
-        }).json()
+        body = c.post(
+            "/api/rules/01_acme.yml/apply",
+            json={
+                "doc_ids": [1, 2],
+                "dry_run": False,
+            },
+        ).json()
     assert body["matched"] == 2
     assert body["written"] == 2
     assert len(fake.patches) == 2
@@ -160,18 +198,22 @@ def test_apply_library_scope_iterates_paperless(app_with_rule):
     app, fake = app_with_rule
     with TestClient(app) as c:
         body = c.post("/api/rules/01_acme.yml/apply", json={"dry_run": True}).json()
-    assert body["scanned"] == 3              # iter_documents yielded all 3
+    assert body["scanned"] == 3  # iter_documents yielded all 3
     assert body["matched"] == 2
     assert body["truncated"] is False
     assert fake.patches == []
 
 
 def test_apply_max_docs_truncates(app_with_rule):
-    app, fake = app_with_rule
+    app, _fake = app_with_rule
     with TestClient(app) as c:
-        body = c.post("/api/rules/01_acme.yml/apply", json={
-            "dry_run": True, "max_docs": 1,
-        }).json()
+        body = c.post(
+            "/api/rules/01_acme.yml/apply",
+            json={
+                "dry_run": True,
+                "max_docs": 1,
+            },
+        ).json()
     assert body["scanned"] == 1
     assert body["truncated"] is True
 
@@ -187,7 +229,7 @@ def test_apply_invalid_yaml_400(tmp_path: Path, fake: FakePaperless):
     rules_dir = tmp_path / "rules"
     rules_dir.mkdir()
     (rules_dir / "broken.yml").write_text("not: a: valid: yaml: ::\n")
-    cfg = Config(rules_dir=rules_dir, state_dir=tmp_path/"state", editor_auth_required=False)
+    cfg = Config(rules_dir=rules_dir, state_dir=tmp_path / "state", editor_auth_required=False)
     app = create_app(cfg, paperless_client=fake)
     with TestClient(app) as c:
         r = c.post("/api/rules/broken.yml/apply", json={"doc_ids": [1]})

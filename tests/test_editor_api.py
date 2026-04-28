@@ -1,4 +1,5 @@
 """Editor API tests against a fake paperless. FastAPI TestClient + duck-typed client."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -29,14 +30,17 @@ class FakePaperless:
         if query:
             q = query.lower()
             results = [
-                d for d in results
+                d
+                for d in results
                 if q in (d.get("title", "") or "").lower()
                 or q in (d.get("content", "") or "").lower()
             ]
         start = (page - 1) * page_size
         return {
-            "count": len(results), "next": None, "previous": None,
-            "results": results[start:start + page_size],
+            "count": len(results),
+            "next": None,
+            "previous": None,
+            "results": results[start : start + page_size],
         }
 
     async def get_document(self, doc_id):
@@ -50,13 +54,17 @@ class FakePaperless:
 
 @pytest.fixture
 def fake():
-    return FakePaperless({
-        42: {
-            "id": 42, "title": "Acme Mar 2024", "content": ACME,
-            "created": "2024-03-15T00:00:00Z",
-        },
-        43: {"id": 43, "title": "Empty doc", "content": ""},
-    })
+    return FakePaperless(
+        {
+            42: {
+                "id": 42,
+                "title": "Acme Mar 2024",
+                "content": ACME,
+                "created": "2024-03-15T00:00:00Z",
+            },
+            43: {"id": 43, "title": "Empty doc", "content": ""},
+        }
+    )
 
 
 @pytest.fixture
@@ -105,10 +113,13 @@ def test_search_filters_results(app_client):
     assert body["count"] == 1 and body["results"][0]["id"] == 42
 
 
-@pytest.mark.parametrize("url,status", [
-    ("/api/documents?page=0", 422),
-    ("/api/documents?page_size=999", 422),
-])
+@pytest.mark.parametrize(
+    "url,status",
+    [
+        ("/api/documents?page=0", 422),
+        ("/api/documents?page_size=999", 422),
+    ],
+)
 def test_pagination_validation(app_client, url, status):
     assert app_client.get(url).status_code == status
 
@@ -127,11 +138,17 @@ def test_get_document_text_missing(app_client):
 
 def test_save_then_list_then_load(app_client):
     text = "match: Test\n"
-    assert app_client.post("/api/rules", json={"filename": "01_test.yml", "yaml": text}).status_code == 200
+    assert (
+        app_client.post("/api/rules", json={"filename": "01_test.yml", "yaml": text}).status_code
+        == 200
+    )
     listing = app_client.get("/api/rules").json()
     assert listing["rules"][0] == {
-        "filename": "01_test.yml", "name": "test",
-        "match": "Test", "field_count": 0, "enabled": True,
+        "filename": "01_test.yml",
+        "name": "test",
+        "match": "Test",
+        "field_count": 0,
+        "enabled": True,
     }
     assert app_client.get("/api/rules/01_test.yml").json()["yaml"] == text
 
@@ -142,10 +159,13 @@ def test_delete_idempotent(app_client):
     assert app_client.delete("/api/rules/r.yml").json()["removed"] is False  # idempotent
 
 
-@pytest.mark.parametrize("body,status", [
-    ({"filename": "../escape.yml", "yaml": "issuer: X\n"}, 400),
-    ({"filename": "r.yml", "yaml": ":\n  : broken"}, 400),
-])
+@pytest.mark.parametrize(
+    "body,status",
+    [
+        ({"filename": "../escape.yml", "yaml": "issuer: X\n"}, 400),
+        ({"filename": "r.yml", "yaml": ":\n  : broken"}, 400),
+    ],
+)
 def test_save_rejects(app_client, body, status):
     assert app_client.post("/api/rules", json=body).status_code == status
 
@@ -162,7 +182,7 @@ def test_runs_rule_against_doc(app_client):
         "match: Acme\n"
         "fields:\n"
         "  amount:\n"
-        "    regex: \"Total à payer\\\\s+EUR\\\\s+([\\\\d ,-]+)\"\n"
+        '    regex: "Total à payer\\\\s+EUR\\\\s+([\\\\d ,-]+)"\n'
         "    type: float\n"
     )
     body = app_client.post("/api/test", json={"yaml": rule_yaml, "doc_ids": [42]}).json()
@@ -172,7 +192,10 @@ def test_runs_rule_against_doc(app_client):
 
 
 def test_invalid_yaml_returns_400(app_client):
-    assert app_client.post("/api/test", json={"yaml": ":\n  : broken", "doc_ids": [42]}).status_code == 400
+    assert (
+        app_client.post("/api/test", json={"yaml": ":\n  : broken", "doc_ids": [42]}).status_code
+        == 400
+    )
 
 
 def test_missing_doc_reports_per_doc_error(app_client):
@@ -185,7 +208,9 @@ def test_missing_doc_reports_per_doc_error(app_client):
 
 
 def test_regex_with_text(app_client):
-    body = app_client.post("/api/regex/test", json={"pattern": r"\d+", "text": "abc 42 def 100"}).json()
+    body = app_client.post(
+        "/api/regex/test", json={"pattern": r"\d+", "text": "abc 42 def 100"}
+    ).json()
     assert body["ok"] and body["results"][0]["match_count"] == 2
 
 
@@ -200,10 +225,14 @@ def test_regex_with_doc_ids(app_client):
 
 
 def test_regex_coercion_preview(app_client):
-    body = app_client.post("/api/regex/test", json={
-        "pattern": r"Total à payer\s+EUR\s+([\d ,-]+)",
-        "doc_ids": [42], "type": "float",
-    }).json()
+    body = app_client.post(
+        "/api/regex/test",
+        json={
+            "pattern": r"Total à payer\s+EUR\s+([\d ,-]+)",
+            "doc_ids": [42],
+            "type": "float",
+        },
+    ).json()
     m = body["results"][0]["matches"][0]
     assert m["coerced"] == 1234.5
 
@@ -217,6 +246,12 @@ def test_invalid_regex_returns_ok_false(app_client):
 
 def test_regex_requires_text_or_doc_ids(app_client):
     assert app_client.post("/api/regex/test", json={"pattern": "x"}).status_code == 400
+
+
+def test_oversized_pattern_rejected(app_client):
+    big = "a" * 5000
+    r = app_client.post("/api/regex/test", json={"pattern": big, "text": "x"})
+    assert r.status_code == 400
 
 
 def test_case_insensitive_flag(app_client):

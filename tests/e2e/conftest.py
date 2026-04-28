@@ -10,6 +10,7 @@ Auto-skipped when no compose CLI is available — `docker compose`,
 in that order. Set KEEP_E2E_STACK=1 to keep containers around between
 runs (useful while iterating on tests).
 """
+
 from __future__ import annotations
 
 import os
@@ -56,9 +57,7 @@ def _detect_compose_cmd() -> list[str] | None:
         if shutil.which(cand[0]) is None:
             continue
         try:
-            r = subprocess.run(
-                [*cand, "version"], capture_output=True, timeout=10
-            )
+            r = subprocess.run([*cand, "version"], capture_output=True, timeout=10)
         except (subprocess.TimeoutExpired, FileNotFoundError):
             continue
         if r.returncode == 0:
@@ -111,9 +110,7 @@ def _wait_for_paperless(timeout: float = 240.0) -> None:
         except httpx.HTTPError as e:
             last_err = str(e)
         time.sleep(2.0)
-    raise RuntimeError(
-        f"paperless did not become healthy within {timeout:.0f}s ({last_err})"
-    )
+    raise RuntimeError(f"paperless did not become healthy within {timeout:.0f}s ({last_err})")
 
 
 @pytest.fixture(scope="session")
@@ -136,8 +133,14 @@ def admin_token(compose_stack) -> str:
     last_err = ""
     while time.monotonic() < deadline:
         r = _compose(
-            "exec", "-T", "test-paperless",
-            "python", "manage.py", "shell", "-c", script,
+            "exec",
+            "-T",
+            "test-paperless",
+            "python",
+            "manage.py",
+            "shell",
+            "-c",
+            script,
             check=False,
         )
         if r.returncode == 0:
@@ -189,9 +192,7 @@ def seeded_doc_ids(compose_stack, admin_token) -> list[int]:
             if expected.issubset(seen):
                 return [d["id"] for d in results]
         time.sleep(3.0)
-    raise RuntimeError(
-        f"paperless did not ingest all fixtures (expected={expected})"
-    )
+    raise RuntimeError(f"paperless did not ingest all fixtures (expected={expected})")
 
 
 @pytest.fixture

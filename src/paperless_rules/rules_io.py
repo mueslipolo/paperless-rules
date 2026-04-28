@@ -56,10 +56,7 @@ def list_rule_filenames(rules_dir: Path) -> list[str]:
     rules_dir = Path(rules_dir)
     if not rules_dir.is_dir():
         return []
-    return sorted(
-        p.name for p in rules_dir.iterdir()
-        if p.suffix.lower() in (".yml", ".yaml")
-    )
+    return sorted(p.name for p in rules_dir.iterdir() if p.suffix.lower() in (".yml", ".yaml"))
 
 
 def validate_filename(filename: str) -> str:
@@ -68,9 +65,7 @@ def validate_filename(filename: str) -> str:
     if "/" in filename or "\\" in filename or ".." in filename:
         raise RulesIOError("filename must not contain path separators")
     if not _FILENAME_RE.match(filename):
-        raise RulesIOError(
-            "filename must match [A-Za-z0-9._-]+.ya?ml"
-        )
+        raise RulesIOError("filename must match [A-Za-z0-9._-]+.ya?ml")
     return filename
 
 
@@ -140,8 +135,16 @@ def write_rule(rules_dir: Path, filename: str, yaml_text: str) -> None:
     rules_dir.mkdir(parents=True, exist_ok=True)
     path = rules_dir / filename
     tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(yaml_text, encoding="utf-8")
-    tmp.replace(path)
+    try:
+        tmp.write_text(yaml_text, encoding="utf-8")
+        tmp.replace(path)
+    except BaseException:
+        if tmp.exists():
+            try:
+                tmp.unlink()
+            except OSError:
+                pass
+        raise
 
 
 def delete_rule(rules_dir: Path, filename: str) -> bool:
@@ -168,6 +171,29 @@ def rename_rule(rules_dir: Path, old_filename: str, new_filename: str) -> str:
     return new_filename
 
 
+_REORDER_TMP_SUFFIX = ".reorder.tmp"
+
+
+def _recover_reorder_tmps(rules_dir: Path) -> None:
+    """Promote any stranded ``*.reorder.tmp`` files to their final names.
+
+    A previous call that crashed between the rename loops would leave tmps
+    on disk; without recovery those rules would be invisible to the engine.
+    Strip the suffix and rename — collisions are resolved by leaving the
+    tmp in place (caller decides what to do)."""
+    if not rules_dir.is_dir():
+        return
+    for p in rules_dir.iterdir():
+        if not p.name.endswith(_REORDER_TMP_SUFFIX):
+            continue
+        target = rules_dir / p.name[: -len(_REORDER_TMP_SUFFIX)]
+        if not target.exists():
+            try:
+                p.rename(target)
+            except OSError:
+                pass
+
+
 def reorder_rules(rules_dir: Path, ordered_filenames: list[str]) -> dict[str, str]:
     """Renumber NN_ prefixes to match ``ordered_filenames``. Files not in
     the list keep their relative order, appended after. Returns the
@@ -176,6 +202,7 @@ def reorder_rules(rules_dir: Path, ordered_filenames: list[str]) -> dict[str, st
     if not rules_dir.is_dir():
         raise RulesIOError(f"{rules_dir!r} is not a directory")
 
+    _recover_reorder_tmps(rules_dir)
     on_disk = list_rule_filenames(rules_dir)
     on_disk_set = set(on_disk)
     for f in ordered_filenames:
@@ -204,11 +231,12 @@ def reorder_rules(rules_dir: Path, ordered_filenames: list[str]) -> dict[str, st
         return {}
 
     # Two-pass rename via temp suffixes — in-place swaps would otherwise
-    # collide on the FS refusing to clobber.
-    tmp_suffix = ".reorder.tmp"
+    # collide on the FS refusing to clobber. If we crash between the two
+    # passes, _recover_reorder_tmps() at the start of the next call
+    # promotes the stranded tmps to their final names.
     for old, new in rename_map.items():
-        (rules_dir / old).rename(rules_dir / (new + tmp_suffix))
+        (rules_dir / old).rename(rules_dir / (new + _REORDER_TMP_SUFFIX))
     for new in rename_map.values():
-        (rules_dir / (new + tmp_suffix)).rename(rules_dir / new)
+        (rules_dir / (new + _REORDER_TMP_SUFFIX)).rename(rules_dir / new)
 
     return rename_map

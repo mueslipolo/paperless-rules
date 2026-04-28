@@ -61,10 +61,10 @@ def _run_editor(cfg: Config) -> int:
 
 async def _run_apply(cfg: Config, doc_id: int, *, dry_run: bool) -> int:
     rules = load_rules(cfg.rules_dir)
-    async with PaperlessClient(cfg.paperless_url, cfg.paperless_token, verify=cfg.httpx_verify) as client:
-        result = await apply_rules_to_document(
-            client, doc_id, rules, dry_run=dry_run
-        )
+    async with PaperlessClient(
+        cfg.paperless_url, cfg.paperless_token, verify=cfg.httpx_verify
+    ) as client:
+        result = await apply_rules_to_document(client, doc_id, rules, dry_run=dry_run)
     if result.error:
         log.error("doc %d: %s", doc_id, result.error)
         return 1
@@ -74,12 +74,15 @@ async def _run_apply(cfg: Config, doc_id: int, *, dry_run: bool) -> int:
     if result.dry_run:
         log.info(
             "doc %d: would apply %s — payload=%s",
-            doc_id, result.rule_filename, result.payload,
+            doc_id,
+            result.rule_filename,
+            result.payload,
         )
     else:
         log.info(
             "doc %d: applied %s",
-            doc_id, result.rule_filename,
+            doc_id,
+            result.rule_filename,
         )
     return 0
 
@@ -93,7 +96,9 @@ async def _run_backfill(cfg: Config, *, query: str, dry_run: bool) -> int:
     matched = 0
     unmatched = 0
     errors = 0
-    async with PaperlessClient(cfg.paperless_url, cfg.paperless_token, verify=cfg.httpx_verify) as client:
+    async with PaperlessClient(
+        cfg.paperless_url, cfg.paperless_token, verify=cfg.httpx_verify
+    ) as client:
         async for doc in client.iter_documents(query=query):
             result = await apply_rules_to_document(
                 client, doc["id"], rules, dry_run=dry_run, cache=cache
@@ -107,7 +112,9 @@ async def _run_backfill(cfg: Config, *, query: str, dry_run: bool) -> int:
                 unmatched += 1
     log.info(
         "backfill complete: matched=%d unmatched=%d errors=%d",
-        matched, unmatched, errors,
+        matched,
+        unmatched,
+        errors,
     )
     return 0 if errors == 0 else 1
 
@@ -124,7 +131,9 @@ async def _run_supervisor(cfg: Config) -> int:
     if cfg.editor_enabled:
         app = create_app(cfg)
         ucfg = uvicorn.Config(
-            app, host=cfg.editor_host, port=cfg.editor_port,
+            app,
+            host=cfg.editor_host,
+            port=cfg.editor_port,
             log_level=os.environ.get("LOG_LEVEL", "info").lower(),
         )
         server = uvicorn.Server(ucfg)
@@ -133,6 +142,7 @@ async def _run_supervisor(cfg: Config) -> int:
 
     if cfg.runtime_mode == "poller":
         from paperless_rules.runtime import poller as poller_mod
+
         tasks["poller"] = asyncio.create_task(poller_mod.run(cfg), name="poller")
         log.info("supervisor: poller every %ds", cfg.poll_interval_seconds)
     elif cfg.runtime_mode == "post_consume":
@@ -179,9 +189,7 @@ def _build_parser() -> argparse.ArgumentParser:
     apply_p = sub.add_parser("apply", help="apply rules to one document on demand")
     apply_p.add_argument("doc_id", type=int)
     apply_p.add_argument("--dry-run", action="store_true")
-    bf_p = sub.add_parser(
-        "backfill", help="apply rules to every document matching a query"
-    )
+    bf_p = sub.add_parser("backfill", help="apply rules to every document matching a query")
     bf_p.add_argument(
         "--filter", default="", help="paperless query string (e.g. 'correspondent:Acme')"
     )
@@ -210,9 +218,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "apply":
         return asyncio.run(_run_apply(cfg, args.doc_id, dry_run=args.dry_run))
     if args.cmd == "backfill":
-        return asyncio.run(
-            _run_backfill(cfg, query=args.filter, dry_run=args.dry_run)
-        )
+        return asyncio.run(_run_backfill(cfg, query=args.filter, dry_run=args.dry_run))
     return 2
 
 

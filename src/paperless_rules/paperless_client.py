@@ -84,9 +84,7 @@ class PaperlessClient:
             "Accept": "application/json; version=2",
         }
         try:
-            r = await self._client.get(
-                "/api/documents/", headers=headers, params={"page_size": 1}
-            )
+            r = await self._client.get("/api/documents/", headers=headers, params={"page_size": 1})
         except httpx.HTTPError as e:
             raise PaperlessError(f"verify_token failed: {e}") from e
         if r.status_code in (401, 403):
@@ -102,9 +100,7 @@ class PaperlessClient:
         except httpx.HTTPError as e:
             raise PaperlessError(f"GET preview failed: {e}") from e
         if r.status_code >= 400:
-            raise PaperlessError(
-                f"GET /api/documents/{doc_id}/preview/ HTTP {r.status_code}"
-            )
+            raise PaperlessError(f"GET /api/documents/{doc_id}/preview/ HTTP {r.status_code}")
         return r.content, r.headers.get("content-type", "application/pdf")
 
     async def iter_documents(
@@ -130,14 +126,10 @@ class PaperlessClient:
                 return
             page += 1
 
-    async def find_one_by_name(
-        self, kind: str, name: str
-    ) -> dict[str, Any] | None:
+    async def find_one_by_name(self, kind: str, name: str) -> dict[str, Any] | None:
         """First record matching ``name`` (case-insensitive). ``kind`` is
         the URL segment: ``correspondents`` / ``document_types`` / ``tags``."""
-        data = await self._get_json(
-            f"/api/{kind}/", params={"name__iexact": name}
-        )
+        data = await self._get_json(f"/api/{kind}/", params={"name__iexact": name})
         results = data.get("results") or []
         return results[0] if results else None
 
@@ -153,9 +145,7 @@ class PaperlessClient:
         try:
             return r.json()
         except ValueError as e:
-            raise PaperlessError(
-                f"paperless returned non-JSON for POST /api/{kind}/"
-            ) from e
+            raise PaperlessError(f"paperless returned non-JSON for POST /api/{kind}/") from e
 
     async def list_custom_fields(self) -> list[dict[str, Any]]:
         """Whole custom_fields list. Caller is expected to cache by name —
@@ -163,9 +153,7 @@ class PaperlessClient:
         data = await self._get_json("/api/custom_fields/", params={"page_size": 200})
         return list(data.get("results") or [])
 
-    async def patch_document(
-        self, doc_id: int, payload: dict[str, Any]
-    ) -> dict[str, Any]:
+    async def patch_document(self, doc_id: int, payload: dict[str, Any]) -> dict[str, Any]:
         try:
             r = await self._client.patch(f"/api/documents/{doc_id}/", json=payload)
         except httpx.HTTPError as e:
@@ -179,9 +167,7 @@ class PaperlessClient:
         except ValueError as e:
             raise PaperlessError("paperless returned non-JSON for PATCH") from e
 
-    async def _get_json(
-        self, path: str, *, params: dict[str, Any] | None = None
-    ) -> dict[str, Any]:
+    async def _get_json(self, path: str, *, params: dict[str, Any] | None = None) -> dict[str, Any]:
         try:
             r = await self._client.get(path, params=params)
         except httpx.HTTPError as e:
@@ -189,9 +175,7 @@ class PaperlessClient:
         if r.status_code == 404:
             raise PaperlessError(f"not found: {path}")
         if r.status_code >= 400:
-            raise PaperlessError(
-                f"paperless {path} returned HTTP {r.status_code}: {r.text[:200]}"
-            )
+            raise PaperlessError(f"paperless {path} returned HTTP {r.status_code}: {r.text[:200]}")
         try:
             return r.json()
         except ValueError as e:

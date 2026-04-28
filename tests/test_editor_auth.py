@@ -124,3 +124,22 @@ def test_health_reports_auth_required_false_when_disabled(tmp_path, fake):
     )
     with TestClient(create_app(cfg, paperless_client=fake)) as c:
         assert c.get("/api/health").json()["auth_required"] is False
+
+
+async def test_auth_cache_is_bounded(monkeypatch):
+    """Token spray must not grow the cache without limit."""
+    monkeypatch.setattr(auth_mod, "_CACHE_MAX", 4)
+    auth_mod._CACHE.clear()
+
+    class _Fake:
+        async def verify_token(self, token):
+            return {"id": 1, "username": "u"}
+
+    client = _Fake()
+    for i in range(20):
+        await auth_mod._verify(f"t-{i}", client)  # type: ignore[arg-type]
+    assert len(auth_mod._CACHE) == 4
+    # The most recently inserted ones survive (LRU).
+    assert "t-19" in auth_mod._CACHE
+    assert "t-0" not in auth_mod._CACHE
+    auth_mod._CACHE.clear()

@@ -25,6 +25,11 @@ from paperless_rules.runtime.apply import (
 
 log = logging.getLogger("paperless_rules.poller")
 
+# Defensive cap on the state dict — paperless installs of any plausible size
+# stay well under this, but the bound prevents pathological growth from
+# upstream bugs or misconfigured retention.
+_STATE_MAX = 100_000
+
 
 def _load_state(path: Path) -> dict[str, str]:
     if not path.is_file():
@@ -60,6 +65,11 @@ async def _poll_once(
             continue
         result = await apply_rules_to_document(client, doc_id, rules, cache=cache)
         state[str(doc_id)] = modified
+        if len(state) > _STATE_MAX:
+            # Evict an arbitrary entry — dict insertion order makes this
+            # roughly oldest-first, which is the right call for a state
+            # bound that should almost never trigger.
+            state.pop(next(iter(state)))
         processed += 1
         if result.error:
             log.error("doc %d: %s", doc_id, result.error)
@@ -91,7 +101,9 @@ async def run(config: Config | None = None, *, max_iterations: int | None = None
             pass
 
     iterations = 0
-    async with PaperlessClient(cfg.paperless_url, cfg.paperless_token, verify=cfg.httpx_verify) as client:
+    async with PaperlessClient(
+        cfg.paperless_url, cfg.paperless_token, verify=cfg.httpx_verify
+    ) as client:
         cache = ResolutionCache()
         while not stop.is_set():
             # Hot-reload rules when any *.yml mtime changes.
@@ -101,9 +113,7 @@ async def run(config: Config | None = None, *, max_iterations: int | None = None
                 rules_sig = current_sig
                 log.info("poller: reloaded %d rule(s) from %s", len(rules), cfg.rules_dir)
             try:
-                n = await _poll_once(
-                    client, rules, state, state_path, cache, cfg.poll_filter
-                )
+                n = await _poll_once(client, rules, state, state_path, cache, cfg.poll_filter)
                 if n:
                     log.info("poller: processed %d doc(s)", n)
             except Exception:

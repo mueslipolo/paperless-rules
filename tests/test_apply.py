@@ -1,4 +1,5 @@
 """Runtime apply.py tests with a fake paperless that records writes."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -64,9 +65,13 @@ class WriteRecordingPaperless:
 
 def _doc(**overrides):
     base = {
-        "id": 42, "title": "", "content": ACME,
-        "correspondent": None, "document_type": None,
-        "tags": [], "custom_fields": [],
+        "id": 42,
+        "title": "",
+        "content": ACME,
+        "correspondent": None,
+        "document_type": None,
+        "tags": [],
+        "custom_fields": [],
     }
     base.update(overrides)
     return base
@@ -80,13 +85,13 @@ def _rule():
         "match": "Acme",
         "exclude": "",
         "fields": {
-            "amount":         {"regex": r"Total à payer\s+EUR\s+([\d ,-]+)", "type": "float"},
-            "date":           {"regex": r"Date d'émission\s+(\d{2}\.\d{2}\.\d{4})", "type": "date"},
+            "amount": {"regex": r"Total à payer\s+EUR\s+([\d ,-]+)", "type": "float"},
+            "date": {"regex": r"Date d'émission\s+(\d{2}\.\d{2}\.\d{4})", "type": "date"},
             "invoice_number": {"regex": r"Numéro de facture\s+(\d+)", "type": "str"},
-            "correspondent":  {"value": "Acme Télécom (Europe) SARL"},
-            "document_type":  {"value": "Invoice"},
-            "tags":           {"value": ["telecom", "monthly"]},
-            "title":          {"template": "{date} Acme #{invoice_number} EUR{amount}"},
+            "correspondent": {"value": "Acme Télécom (Europe) SARL"},
+            "document_type": {"value": "Invoice"},
+            "tags": {"value": ["telecom", "monthly"]},
+            "title": {"template": "{date} Acme #{invoice_number} EUR{amount}"},
         },
         "required": ["amount", "date"],
         "options": {"currency": "EUR", "date_formats": ["%d.%m.%Y"]},
@@ -215,7 +220,7 @@ async def test_custom_field_creation_failure_skips_field():
     assert {"amount", "date", "invoice_number"} <= set(result.skipped_fields)
     payload = client.patches[0][1]
     assert "custom_fields" not in payload  # all skipped
-    assert "correspondent" in payload      # built-ins still went through
+    assert "correspondent" in payload  # built-ins still went through
 
 
 async def test_correspondent_creation_failure_silently_omits():

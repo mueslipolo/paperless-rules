@@ -5,6 +5,7 @@ PaperlessClient at the live paperless container — so the API → paperless
 HTTP path is exercised for real, while the FastAPI app itself stays an
 in-memory ASGI mount (no need to also containerize paperless-rules).
 """
+
 from __future__ import annotations
 
 import pytest
@@ -41,9 +42,7 @@ class TestEditorAgainstRealPaperless:
         body = app_client.get("/api/documents").json()
         assert body["count"] == len(seeded_doc_ids)
 
-    def test_document_text_returns_real_ocr_content(
-        self, app_client, seeded_doc_ids
-    ):
+    def test_document_text_returns_real_ocr_content(self, app_client, seeded_doc_ids):
         # The Acme fixture is one of the seeded docs; pick the first
         # one whose OCR contains the recognisable marker.
         for doc_id in seeded_doc_ids:
@@ -57,9 +56,7 @@ class TestEditorAgainstRealPaperless:
                 return
         pytest.fail("did not find the Acme fixture among seeded docs")
 
-    def test_regex_test_with_doc_ids_returns_per_doc_matches(
-        self, app_client, seeded_doc_ids
-    ):
+    def test_regex_test_with_doc_ids_returns_per_doc_matches(self, app_client, seeded_doc_ids):
         r = app_client.post(
             "/api/regex/test",
             json={
@@ -74,10 +71,7 @@ class TestEditorAgainstRealPaperless:
         # At least one doc has an EUR amount (the Acme fixture).
         assert any(x["match_count"] > 0 for x in body["results"])
 
-
-    def test_full_rule_test_extracts_amount(
-        self, app_client, seeded_doc_ids
-    ):
+    def test_full_rule_test_extracts_amount(self, app_client, seeded_doc_ids):
         # Find the Acme doc
         for doc_id in seeded_doc_ids:
             text = app_client.get(f"/api/documents/{doc_id}/text").json()["content"]
@@ -87,15 +81,13 @@ class TestEditorAgainstRealPaperless:
             pytest.fail("no Acme doc seeded")
 
         rule_yaml = (
-            "keywords: [Acme, Facture]\n"
+            "match: Acme.*Facture\n"
             "fields:\n"
             "  amount:\n"
             '    regex: "Total à payer\\\\s+EUR\\\\s+([\\\\d ,-]+)"\n'
             "    type: float\n"
         )
-        r = app_client.post(
-            "/api/test", json={"yaml": rule_yaml, "doc_ids": [doc_id]}
-        )
+        r = app_client.post("/api/test", json={"yaml": rule_yaml, "doc_ids": [doc_id]})
         assert r.status_code == 200
         result = r.json()["results"][0]
         assert result["extraction"]["fields"]["amount"]["value"] == 1234.5

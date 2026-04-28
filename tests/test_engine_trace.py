@@ -4,6 +4,7 @@ paperless_rules.trace logger when opted in.
 The logger output is a behavioural concern (people grep their container
 logs); we assert via caplog so a refactor that drops the log path will fail.
 """
+
 from __future__ import annotations
 
 import logging
@@ -14,7 +15,7 @@ RULE = {
     "match": "Acme",
     "fields": {
         "amount": {"regex": r"EUR\s+([\d ,]+)", "type": "float"},
-        "ref":    {"regex": r"Ref\s+(\d+)",     "type": "str"},
+        "ref": {"regex": r"Ref\s+(\d+)", "type": "str"},
     },
 }
 
@@ -51,7 +52,7 @@ def test_trace_emits_to_dedicated_logger(caplog):
 
 def test_no_trace_means_silent_logger(caplog):
     caplog.set_level(logging.INFO, logger="paperless_rules.trace")
-    extract_with_rule(DOC, RULE)            # default trace=False
+    extract_with_rule(DOC, RULE)  # default trace=False
     msgs = [rec.message for rec in caplog.records if rec.name == "paperless_rules.trace"]
     assert msgs == []
 
@@ -65,9 +66,11 @@ def test_trace_records_exclude_fire():
 
 
 def test_trace_records_field_failure():
-    rule = {"match": "Acme",
-            "fields": {"amount": {"regex": r"never_matches_(\d+)", "type": "float"}},
-            "trace": True}
+    rule = {
+        "match": "Acme",
+        "fields": {"amount": {"regex": r"never_matches_(\d+)", "type": "float"}},
+        "trace": True,
+    }
     r = extract_with_rule(DOC, rule)
     fail_lines = [ln for ln in r["trace"] if "amount" in ln and "FAIL" in ln]
     assert fail_lines, r["trace"]

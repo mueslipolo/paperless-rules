@@ -115,6 +115,22 @@ def _derive_prefilter(pattern: str) -> str:
     return " ".join(out)
 
 
+# ReDoS guards. Python's stdlib `re` has no timeout, so we cap inputs
+# instead: pattern length kills the majority of pathological compiles,
+# and a 1 MB text cap caps the per-call linear-factor blowup.
+_PATTERN_MAX = 4096
+_TEXT_MAX = 1_000_000
+
+
+def _bound_pattern(pattern: str) -> None:
+    if len(pattern) > _PATTERN_MAX:
+        raise HTTPException(400, f"pattern exceeds {_PATTERN_MAX} chars")
+
+
+def _bound_text(text: str) -> str:
+    return text if len(text) <= _TEXT_MAX else text[:_TEXT_MAX]
+
+
 def _build_re_flags(flags: str) -> int:
     out = _re.MULTILINE
     if "i" in flags:
@@ -137,8 +153,10 @@ def _run_pattern(
     matches: list[dict[str, Any]] = []
     for m in compiled.finditer(text):
         entry: dict[str, Any] = {
-            "start": m.start(), "end": m.end(),
-            "match": m.group(0), "groups": list(m.groups()),
+            "start": m.start(),
+            "end": m.end(),
+            "match": m.group(0),
+            "groups": list(m.groups()),
         }
         if type_:
             raw = m.group(1) if m.groups() else m.group(0)
@@ -168,7 +186,9 @@ def create_app(
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         if state.paperless is None and cfg.paperless_url and cfg.paperless_token:
-            state.paperless = PaperlessClient(cfg.paperless_url, cfg.paperless_token, verify=cfg.httpx_verify)
+            state.paperless = PaperlessClient(
+                cfg.paperless_url, cfg.paperless_token, verify=cfg.httpx_verify
+            )
             state.owns_client = True
         try:
             yield
@@ -277,8 +297,7 @@ def create_app(
         """Rename a rule via display name; preserves the NN_ prefix."""
         require_writable()
         try:
-            new_filename = auto_filename(req.name, cfg.rules_dir,
-                                         prefix=_extract_prefix(filename))
+            new_filename = auto_filename(req.name, cfg.rules_dir, prefix=_extract_prefix(filename))
             new_filename = rename_rule(cfg.rules_dir, filename, new_filename)
         except RulesIOError as e:
             raise HTTPException(400, str(e)) from e
@@ -287,7 +306,11 @@ def create_app(
             data = yaml.safe_load(read_rule(cfg.rules_dir, new_filename)) or {}
             if isinstance(data, dict):
                 data = {"name": req.name, **{k: v for k, v in data.items() if k != "name"}}
-                write_rule(cfg.rules_dir, new_filename, yaml.safe_dump(data, sort_keys=False, allow_unicode=True))
+                write_rule(
+                    cfg.rules_dir,
+                    new_filename,
+                    yaml.safe_dump(data, sort_keys=False, allow_unicode=True),
+                )
         except (RulesIOError, yaml.YAMLError):
             pass
         return {"ok": True, "filename": new_filename}
@@ -308,7 +331,9 @@ def create_app(
         filename = auto_filename(req.name, cfg.rules_dir)
         body = yaml.safe_dump(
             {"name": req.name, "match": "", "exclude": "", "fields": {}},
-            sort_keys=False, allow_unicode=True, default_flow_style=False,
+            sort_keys=False,
+            allow_unicode=True,
+            default_flow_style=False,
         )
         try:
             write_rule(cfg.rules_dir, filename, body)
@@ -342,19 +367,24 @@ def create_app(
             except PaperlessError as e:
                 results.append({"doc_id": doc_id, "error": str(e)})
                 continue
-            results.append({
-                "doc_id": doc_id,
-                "title": doc.get("title", ""),
-                "extraction": extract_with_rule(
-                    doc.get("content", "") or "", rule, trace=True,
-                ),
-            })
+            results.append(
+                {
+                    "doc_id": doc_id,
+                    "title": doc.get("title", ""),
+                    "extraction": extract_with_rule(
+                        doc.get("content", "") or "",
+                        rule,
+                        trace=True,
+                    ),
+                }
+            )
         return {"results": results}
 
     @app.post("/api/regex/test", dependencies=auth)
     async def test_regex(req: RegexTestRequest) -> dict[str, Any]:
         if not req.doc_ids and req.text is None:
             raise HTTPException(400, "either doc_ids or text must be provided")
+        _bound_pattern(req.pattern)
         try:
             compiled = _re.compile(req.pattern, _build_re_flags(req.flags or ""))
         except _re.error as e:
@@ -369,31 +399,51 @@ def create_app(
                 try:
                     doc = await client.get_document(doc_id)
                 except PaperlessError as e:
-                    results.append({
-                        "doc_id": doc_id, "source": "doc", "error": str(e),
-                        "match_count": 0, "matches": [],
-                    })
+                    results.append(
+                        {
+                            "doc_id": doc_id,
+                            "source": "doc",
+                            "error": str(e),
+                            "match_count": 0,
+                            "matches": [],
+                        }
+                    )
                     continue
-                results.append(_run_pattern(
-                    compiled, doc.get("content", "") or "",
-                    req.type, req.date_formats, doc_id, "doc",
-                ))
+                results.append(
+                    _run_pattern(
+                        compiled,
+                        _bound_text(doc.get("content", "") or ""),
+                        req.type,
+                        req.date_formats,
+                        doc_id,
+                        "doc",
+                    )
+                )
         if req.text is not None:
-            results.append(_run_pattern(
-                compiled, req.text, req.type, req.date_formats, None, "text",
-            ))
+            results.append(
+                _run_pattern(
+                    compiled,
+                    _bound_text(req.text),
+                    req.type,
+                    req.date_formats,
+                    None,
+                    "text",
+                )
+            )
         return {"ok": True, "error": None, "results": results}
 
     @app.post("/api/discover", dependencies=auth)
     async def discover_endpoint(req: DiscoverRequest) -> dict[str, Any]:
         if not req.match:
             return {"scanned": 0, "matching": [], "truncated_scan": False}
+        _bound_pattern(req.match)
         try:
             match_re = _re.compile(req.match, _build_re_flags(""))
         except _re.error as e:
             raise HTTPException(400, f"invalid match regex: {e}") from e
         exclude_re = None
         if req.exclude:
+            _bound_pattern(req.exclude)
             try:
                 exclude_re = _re.compile(req.exclude, _build_re_flags(""))
             except _re.error as e:
@@ -408,7 +458,7 @@ def create_app(
                 if scanned >= req.scan_limit:
                     break
                 scanned += 1
-                text = doc.get("content", "") or ""
+                text = _bound_text(doc.get("content", "") or "")
                 m = match_re.search(text)
                 if not m:
                     continue
@@ -417,15 +467,17 @@ def create_app(
                 start = max(0, m.start() - 30)
                 end = min(len(text), m.end() + 30)
                 snippet = text[start:end].replace("\n", " · ")
-                matching.append({
-                    "id": doc.get("id"),
-                    "title": doc.get("title", ""),
-                    "snippet": snippet,
-                    "match_start": m.start() - start,
-                    "match_end": m.end() - start,
-                    "leading_ellipsis": start > 0,
-                    "trailing_ellipsis": end < len(text),
-                })
+                matching.append(
+                    {
+                        "id": doc.get("id"),
+                        "title": doc.get("title", ""),
+                        "snippet": snippet,
+                        "match_start": m.start() - start,
+                        "match_end": m.end() - start,
+                        "leading_ellipsis": start > 0,
+                        "trailing_ellipsis": end < len(text),
+                    }
+                )
                 if len(matching) >= req.max_matches:
                     break
         except PaperlessError as e:
@@ -445,9 +497,7 @@ def create_app(
         rules = load_rules(cfg.rules_dir)
         if not rules:
             return {"doc_id": req.doc_id, "matched": False, "skipped": "no rules loaded"}
-        result = await apply_rules_to_document(
-            require_paperless(), req.doc_id, rules
-        )
+        result = await apply_rules_to_document(require_paperless(), req.doc_id, rules)
         return {
             "doc_id": result.doc_id,
             "matched": result.matched,
@@ -498,7 +548,9 @@ def create_app(
             scanned += 1
             try:
                 r = await apply_rules_to_document(
-                    client, doc_id, rules,
+                    client,
+                    doc_id,
+                    rules,
                     overwrite_existing=req.overwrite_existing,
                     dry_run=req.dry_run,
                     cache=cache,
@@ -506,17 +558,21 @@ def create_app(
             except Exception as e:
                 results.append({"doc_id": doc_id, "error": f"apply failed: {e}"})
                 continue
-            results.append({
-                "doc_id": r.doc_id,
-                "matched": r.matched,
-                "payload": r.payload,
-                "error": r.error,
-                "dry_run": r.dry_run,
-                "skipped_fields": r.skipped_fields,
-            })
+            results.append(
+                {
+                    "doc_id": r.doc_id,
+                    "matched": r.matched,
+                    "payload": r.payload,
+                    "error": r.error,
+                    "dry_run": r.dry_run,
+                    "skipped_fields": r.skipped_fields,
+                }
+            )
 
         matched = sum(1 for r in results if r.get("matched"))
-        written = 0 if req.dry_run else sum(1 for r in results if r.get("matched") and not r.get("error"))
+        written = (
+            0 if req.dry_run else sum(1 for r in results if r.get("matched") and not r.get("error"))
+        )
         errors = sum(1 for r in results if r.get("error"))
         return {
             "filename": filename,

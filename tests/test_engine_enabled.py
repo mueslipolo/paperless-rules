@@ -2,6 +2,7 @@
 
 Plus a smoke test for rules_dir_signature — used by the poller's hot-reload.
 """
+
 from __future__ import annotations
 
 import time
@@ -62,7 +63,7 @@ def test_signature_stable_when_unchanged(tmp_path: Path):
 def test_signature_shifts_when_file_modified(tmp_path: Path):
     p = _write(tmp_path, "01.yml", "match: 'foo'\n")
     s1 = rules_dir_signature(tmp_path)
-    time.sleep(0.01)               # mtime resolution; ns granularity covers most FS
+    time.sleep(0.01)  # mtime resolution; ns granularity covers most FS
     p.write_text("match: 'foo updated'\n", encoding="utf-8")
     s2 = rules_dir_signature(tmp_path)
     assert s1 != s2
