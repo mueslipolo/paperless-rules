@@ -79,6 +79,13 @@
     background: var(--amber); opacity: 0; transition: opacity 0.15s;
   }
   .dirty-dot.dirty { opacity: 1; }
+  .enabled-toggle {
+    display: inline-flex; align-items: center; gap: 4px;
+    font-size: 11px; color: var(--ink-soft); cursor: pointer;
+    user-select: none;
+  }
+  .enabled-toggle.disabled { color: var(--amber); }
+  .enabled-toggle input { margin: 0; }
   .topbar .spacer { flex: 1; }
   .topbar #save-status { font-size: 11px; color: var(--ink-soft); }
   .topbar #save-status.ok    { color: var(--green); }
@@ -101,6 +108,21 @@
   .topbar button:hover { filter: brightness(0.97); }
   .topbar button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
   .topbar button.icon { padding: 4px 7px; font-size: 13px; line-height: 1; }
+
+  /* Read-only banner — surfaces when EDITOR_READONLY=true. */
+  .readonly-pill {
+    background: rgba(176,123,30,0.14); color: var(--amber);
+    padding: 2px 8px; border-radius: 9px;
+    font-size: 10px; text-transform: uppercase; letter-spacing: 0.6px;
+    font-weight: 600;
+  }
+  /* Visually disable mutating affordances when readonly. */
+  body.readonly #btn-new-rule,
+  body.readonly #btn-add-field,
+  body.readonly #btn-backfill,
+  body.readonly .field-row .delete-btn,
+  body.readonly .rule-item { opacity: 0.45; }
+  body.readonly #save-status::before { content: "read-only · "; color: var(--amber); }
 
   /* left pane */
   .pane-left {
@@ -139,6 +161,11 @@
   }
   .rule-item .meta, .doc-item .meta {
     color: var(--ink-soft); font-size: 10px;
+  }
+  .rule-item.disabled .name { text-decoration: line-through; color: var(--ink-soft); }
+  .rule-item .meta.off {
+    color: var(--amber); font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.5px;
   }
   .doc-item .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); flex-shrink: 0; }
   .doc-item .dot.warn { background: var(--amber); }
@@ -740,6 +767,23 @@
   .outcome-card .oc-note {
     margin-top: 6px; font-size: 10px; color: var(--ink-soft); font-style: italic;
   }
+  .outcome-card .oc-trace {
+    margin-top: 8px; padding-top: 6px;
+    border-top: 1px dashed var(--line);
+  }
+  .outcome-card .oc-trace summary {
+    font-size: 10px; color: var(--ink-soft); cursor: pointer;
+    text-transform: uppercase; letter-spacing: 0.5px;
+    user-select: none;
+  }
+  .outcome-card .oc-trace summary:hover { color: var(--accent); }
+  .outcome-card .oc-trace-body {
+    background: var(--bg); border: 1px solid var(--line); border-radius: 3px;
+    padding: 6px 8px; margin-top: 6px;
+    font-family: var(--mono); font-size: 10px; line-height: 1.5;
+    white-space: pre-wrap; word-break: break-word;
+    color: var(--ink); max-height: 240px; overflow-y: auto;
+  }
 
   /* command palette */
   #palette {
@@ -940,6 +984,10 @@
   <div class="topbar">
     <span class="brand">paperless·rules</span>
     <input type="text" class="filename" id="filename-input" placeholder="01_my_rule.yml">
+    <label class="enabled-toggle" id="enabled-toggle" title="toggle this rule's enabled state — runtime picks up the change immediately">
+      <input type="checkbox" id="enabled-checkbox" checked>
+      <span>enabled</span>
+    </label>
     <span class="dirty-dot" id="dirty-dot" title="unsaved changes"></span>
     <span class="spacer"></span>
     <span id="save-status">—</span>
@@ -947,6 +995,8 @@
     <span id="health-pill"><span class="dot"></span>connecting…</span>
     <button class="icon" id="btn-refresh-schema" title="re-fetch paperless schema (custom_fields)">↻</button>
     <button id="btn-test" class="primary" title="test rule against the corpus">Test</button>
+    <span id="readonly-banner" class="readonly-pill" hidden
+          title="EDITOR_READONLY=true · saves, deletes, post-consume and live apply are disabled">READ-ONLY</span>
     <button class="icon" id="btn-logout" title="sign out — clears the saved paperless token" hidden>⎋</button>
   </div>
 
@@ -1322,6 +1372,7 @@ const state = {
 
 function emptyRule() {
   return {
+    enabled: true,            // top-level enabled: false parks the rule
     match: "",
     exclude: "",
     fields: [],               // [{name, kind, body, type}]
@@ -1447,6 +1498,7 @@ function parseRule(yamlText) {
     else if (sec.key === "fields")  parseFieldsBlock(sec.body, r);
     else if (sec.key === "required") r.required = parseInlineList(sec.inline) || parseBlockList(sec.body);
     else if (sec.key === "options") parseOptionsBlock(sec.body, r);
+    else if (sec.key === "enabled") r.enabled = unquote(sec.inline).toLowerCase() !== "false";
     else r.extras[sec.key] = (sec.inline ? sec.inline : "") + (sec.body.length ? "\n" + sec.body.join("\n") : "");
   }
   return r;
@@ -1560,6 +1612,10 @@ function parseOptionsBlock(body, r) {
 
 function serializeRule(r) {
   const out = [];
+  // `enabled: true` is the default and we don't emit it; only write the
+  // line when the rule is explicitly disabled (so a clean rule's YAML
+  // doesn't grow a noisy line).
+  if (r.enabled === false) out.push(`enabled: false`);
   out.push(`match: ${yqStr(r.match || "")}`);
   if (r.exclude) out.push(`exclude: ${yqStr(r.exclude)}`);
   else           out.push(`exclude: ''`);
@@ -1665,6 +1721,9 @@ function renderHealth(s) {
 function renderTopbar() {
   $("#filename-input").value = state.currentFilename;
   $("#dirty-dot").classList.toggle("dirty", state.dirty);
+  const enabled = state.rule.enabled !== false;
+  $("#enabled-checkbox").checked = enabled;
+  $("#enabled-toggle").classList.toggle("disabled", !enabled);
 }
 
 function setSaveStatus(cls, text) {
@@ -1679,13 +1738,20 @@ function renderRuleList() {
     el.innerHTML = '<div class="empty">no rules yet</div>';
     return;
   }
-  el.innerHTML = state.rules.map(r => `
-    <div class="rule-item ${r.filename === state.currentFilename ? "active" : ""}"
-         data-filename="${escAttr(r.filename)}" title="${escAttr(r.filename)}">
-      <span class="dot"></span>
+  el.innerHTML = state.rules.map(r => {
+    const disabled = r.enabled === false;
+    const dotCls = disabled ? "dot warn" : "dot";
+    const dimCls = disabled ? " disabled" : "";
+    const tag = disabled ? '<span class="meta off">off</span>' : "";
+    return `
+    <div class="rule-item${dimCls} ${r.filename === state.currentFilename ? "active" : ""}"
+         data-filename="${escAttr(r.filename)}" title="${escAttr(r.filename)}${disabled ? " · disabled (enabled: false)" : ""}">
+      <span class="${dotCls}"></span>
       <span class="name">${esc(r.filename)}</span>
+      ${tag}
       <span class="meta">${(r.field_count || 0)}f</span>
-    </div>`).join("");
+    </div>`;
+  }).join("");
 }
 
 function renderDocList() {
@@ -2493,6 +2559,20 @@ function renderOutcomeCards() {
         note.textContent = "match regex didn't fire — nothing written";
         body.appendChild(note);
       }
+      // Per-rule trace — only present when /api/test ran with trace=True
+      // (which it always does). Collapsed by default; click to expand.
+      if (Array.isArray(ext.trace) && ext.trace.length) {
+        const det = document.createElement("details");
+        det.className = "oc-trace";
+        const sum = document.createElement("summary");
+        sum.textContent = `trace · ${ext.trace.length} step${ext.trace.length === 1 ? "" : "s"}`;
+        det.appendChild(sum);
+        const pre = document.createElement("pre");
+        pre.className = "oc-trace-body";
+        pre.textContent = ext.trace.join("\n");
+        det.appendChild(pre);
+        body.appendChild(det);
+      }
     }
 
     card.appendChild(body);
@@ -2718,6 +2798,7 @@ function renderBackfillResults(r, wasDryRun) {
 // ── auth (login modal + logout) ─────────────────────────────────────
 
 let authRequired = true;     // updated from /api/health on boot
+let readOnly = false;        // updated from /api/health on boot
 
 function showLoginModal(message) {
   const el = $("#login-modal");
@@ -2761,6 +2842,8 @@ async function loadHealth() {
     const h = await api.health();
     renderHealth(h);
     authRequired = !!h.auth_required;
+    readOnly = !!h.readonly;
+    document.body.classList.toggle("readonly", readOnly);
     // On Synology setups the paperless URL doubles as the hint for where
     // to mint the token. Try to make it clickable when known.
     const url = h.paperless?.url || "";
@@ -2768,6 +2851,9 @@ async function loadHealth() {
     // If auth isn't required (LAN-only mode) keep the logout button hidden.
     if (!authRequired) $("#btn-logout").hidden = true;
     else if (userToken)  $("#btn-logout").hidden = false;
+    // Update the readonly banner in the topbar.
+    const banner = $("#readonly-banner");
+    if (banner) banner.hidden = !readOnly;
   } catch (e) {
     const el = $("#health-pill");
     el.classList.remove("ok"); el.classList.add("error");
@@ -3227,6 +3313,16 @@ function wire() {
     debouncedSerializeAndSave();
   });
 
+  $("#enabled-checkbox").addEventListener("change", e => {
+    state.rule.enabled = e.target.checked;
+    markDirty();
+    renderTopbar();
+    scheduleSerialize();
+    // Save immediately — the user expects toggling enabled to flip the rule
+    // live; the runtime mtime watcher picks it up on the next poll.
+    autoSave();
+  });
+
   $("#btn-yaml-toggle").addEventListener("click", () => {
     const yaml = $("#raw-yaml");
     const btn = $("#btn-yaml-toggle");
@@ -3294,8 +3390,10 @@ function wire() {
   // Health is unauthenticated and tells us whether auth is required and
   // where to mint a token. Do it first so the login modal hint URL is right.
   await loadHealth();
-  if (authRequired && !userToken) {
+  if (authRequired && !userToken && !readOnly) {
     // No saved token → show modal, defer the rest until login succeeds.
+    // (Read-only mode skips the login modal entirely — the server uses
+    // the env-var token and the SPA never sees one.)
     showLoginModal();
     return;
   }

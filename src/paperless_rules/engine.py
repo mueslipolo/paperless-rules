@@ -19,6 +19,7 @@ the offending field.
 
 from __future__ import annotations
 
+import logging
 import re
 import unicodedata
 from datetime import datetime
@@ -29,6 +30,11 @@ import yaml
 
 Rule = dict[str, Any]
 ExtractionResult = dict[str, Any]
+
+# Per-rule diagnostic logger. Stays silent unless a rule opts in via
+# top-level `trace: true` (or a caller explicitly passes trace=True).
+# Configure once on app start: `logging.getLogger("paperless_rules.trace").setLevel(logging.INFO)`.
+log_trace = logging.getLogger("paperless_rules.trace")
 
 # Reserved field names that map to paperless built-in metadata. Anything
 # else in `fields:` becomes a custom field of the same name.
@@ -448,7 +454,7 @@ def _apply_default(
 # ── main entry ───────────────────────────────────────────────────────
 
 
-def extract_with_rule(text: str, rule: Rule) -> ExtractionResult:
+def extract_with_rule(text: str, rule: Rule, *, trace: bool | None = None) -> ExtractionResult:
     """Match a document against the rule and produce a fields table.
 
     Returns:
@@ -460,8 +466,25 @@ def extract_with_rule(text: str, rule: Rule) -> ExtractionResult:
           name: { ok, value, raw, type, kind, internal, error, pattern?, groups? }
         },
         'required_ok': bool,             # matched and every `required` field is ok
+        'trace': [str]?,                 # only when trace=True (or rule has `trace: true`)
       }
+
+    Tracing: when enabled (explicit ``trace=True`` or top-level ``trace: true`` in
+    the rule), every match/exclude/field outcome is appended to a per-call trace
+    list AND emitted via the ``paperless_rules.trace`` logger. The editor's
+    /api/test passes ``trace=True`` unconditionally so the SPA can render the
+    trace inline; the runtime (poller, post-consume, backfill) honors only the
+    rule-level flag, so noisy diagnostics stay scoped to the rules you're
+    actively investigating.
     """
+    if trace is None:
+        trace = rule.get("trace") is True
+    trace_lines: list[str] = [] if trace else []  # placeholder; see uses below
+
+    rule_label = rule.get("name") or rule.get("match") or "<rule>"
+    if trace:
+        log_trace.info("─── %s — extract_with_rule ───", rule_label)
+
     text = unicodedata.normalize("NFC", text or "")
 
     # Match phase.
@@ -488,6 +511,21 @@ def extract_with_rule(text: str, rule: Rule) -> ExtractionResult:
         None,
     )
     matched = not missing and excluded_by is None
+
+    if trace:
+        for p in match_patterns:
+            hit = p not in missing
+            line = f"match {p!r} → {'HIT' if hit else 'MISS'}"
+            trace_lines.append(line); log_trace.info(line)
+        for e in excludes:
+            fired = e == excluded_by
+            line = f"exclude {e!r} → {'FIRED (rule disqualified)' if fired else 'no match'}"
+            trace_lines.append(line); log_trace.info(line)
+        verdict = "MATCHED" if matched else (
+            f"EXCLUDED by {excluded_by!r}" if excluded_by else "no match"
+        )
+        line = f"verdict: {verdict}"
+        trace_lines.append(line); log_trace.info(line)
 
     # Field evaluation — two passes.
     fields_spec = rule.get("fields") or {}
@@ -516,16 +554,43 @@ def extract_with_rule(text: str, rule: Rule) -> ExtractionResult:
     required = rule.get("required") or []
     required_ok = matched and all(fields.get(f, {}).get("ok") for f in required)
 
-    return {
+    if trace:
+        for fname, fres in fields.items():
+            sample = fres.get("value")
+            if isinstance(sample, str) and len(sample) > 80:
+                sample = sample[:77] + "…"
+            err = fres.get("error")
+            line = (
+                f"field {fname!r} ({fres.get('kind')}, type={fres.get('type')}): "
+                f"{'OK' if fres.get('ok') else 'FAIL'} value={sample!r}"
+                + (f" error={err!r}" if err else "")
+            )
+            trace_lines.append(line); log_trace.info(line)
+        if required:
+            line = f"required {required} → {'OK' if required_ok else 'NOT MET'}"
+            trace_lines.append(line); log_trace.info(line)
+
+    result: ExtractionResult = {
         "matched": matched,
         "missing_match": missing,
         "excluded_by": excluded_by,
         "fields": fields,
         "required_ok": required_ok,
     }
+    if trace:
+        result["trace"] = trace_lines
+    return result
 
 
 def load_rules(rules_dir: Path) -> list[tuple[str, Rule]]:
+    """Load all *.yml/*.yaml files from `rules_dir` as Rule mappings.
+
+    Rules with explicit top-level ``enabled: false`` are skipped — useful
+    for parking a half-baked rule without renaming it (which would break
+    the editor URL, churn git history, and lose the file's place in the
+    sort order). Default is enabled, so existing rules without the field
+    keep working unchanged.
+    """
     rules_dir = Path(rules_dir)
     if not rules_dir.is_dir():
         return []
@@ -537,9 +602,25 @@ def load_rules(rules_dir: Path) -> list[tuple[str, Rule]]:
             data = yaml.safe_load(path.read_text(encoding="utf-8"))
         except (yaml.YAMLError, OSError):
             continue
-        if isinstance(data, dict):
-            out.append((path.name, data))
+        if not isinstance(data, dict):
+            continue
+        if data.get("enabled") is False:
+            continue
+        out.append((path.name, data))
     return out
+
+
+def rules_dir_signature(rules_dir: Path) -> tuple[int, ...]:
+    """Cheap fingerprint of every YAML rule file's mtime, used by the poller
+    to detect rule changes without reloading on every iteration."""
+    rules_dir = Path(rules_dir)
+    if not rules_dir.is_dir():
+        return ()
+    return tuple(
+        int(p.stat().st_mtime_ns)
+        for p in sorted(rules_dir.iterdir())
+        if p.suffix.lower() in (".yml", ".yaml")
+    )
 
 
 def find_matching_rule(

@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from paperless_rules.config import Config
-from paperless_rules.engine import load_rules
+from paperless_rules.engine import load_rules, rules_dir_signature
 from paperless_rules.paperless_client import PaperlessClient
 from paperless_rules.runtime.apply import (
     ResolutionCache,
@@ -78,6 +78,7 @@ async def run(config: Config | None = None, *, max_iterations: int | None = None
     state_path = cfg.state_dir / "poller.json"
     state = _load_state(state_path)
     rules = load_rules(cfg.rules_dir)
+    rules_sig = rules_dir_signature(cfg.rules_dir)
     if not rules:
         log.warning("no rules in %s; poller will idle", cfg.rules_dir)
 
@@ -93,6 +94,15 @@ async def run(config: Config | None = None, *, max_iterations: int | None = None
     async with PaperlessClient(cfg.paperless_url, cfg.paperless_token, verify=cfg.httpx_verify) as client:
         cache = ResolutionCache()
         while not stop.is_set():
+            # Hot-reload rules when any *.yml mtime changes — lets the editor
+            # publish a rule change (save in browser, toggle enabled: false)
+            # without restarting the container. mtime check is cheap (one
+            # stat per rule); we only re-parse YAML when the signature shifts.
+            current_sig = rules_dir_signature(cfg.rules_dir)
+            if current_sig != rules_sig:
+                rules = load_rules(cfg.rules_dir)
+                rules_sig = current_sig
+                log.info("poller: reloaded %d rule(s) from %s", len(rules), cfg.rules_dir)
             try:
                 n = await _poll_once(
                     client, rules, state, state_path, cache, cfg.poll_filter

@@ -62,6 +62,9 @@ def list_rules(rules_dir: Path) -> list[dict[str, Any]]:
                 "filename": path.name,
                 "match": data.get("match", "") or "",
                 "field_count": len(data.get("fields") or {}),
+                # `enabled: false` parks the rule without renaming it; the
+                # runtime skips it but the editor still lists it.
+                "enabled": data.get("enabled") is not False,
             }
         )
     return out

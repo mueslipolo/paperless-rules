@@ -190,6 +190,15 @@ def create_app(
             raise HTTPException(503, "paperless not configured")
         return state.paperless
 
+    def require_writable() -> None:
+        """Defense-in-depth gate for routes that mutate paperless or rules
+        on disk. EDITOR_READONLY=true makes the editor a strict read-only
+        viewer — everything that could PATCH paperless or write a YAML file
+        returns 405. Used on /api/rules POST/DELETE, /api/post-consume, and
+        non-dry-run /api/rules/{f}/apply."""
+        if cfg.editor_readonly:
+            raise HTTPException(405, "editor is in read-only mode (EDITOR_READONLY=true)")
+
     @app.get("/api/health")
     async def health() -> dict[str, Any]:
         if state.paperless is None:
@@ -201,6 +210,7 @@ def create_app(
             "rules_dir": str(cfg.rules_dir),
             "paperless": ps,
             "auth_required": cfg.editor_auth_required,
+            "readonly": cfg.editor_readonly,
         }
 
     @app.get("/api/documents", dependencies=auth)
@@ -268,6 +278,7 @@ def create_app(
 
     @app.post("/api/rules", dependencies=auth)
     def save_rule_endpoint(req: RuleSaveRequest) -> dict[str, Any]:
+        require_writable()
         try:
             write_rule(cfg.rules_dir, req.filename, req.yaml)
         except RulesIOError as e:
@@ -276,6 +287,7 @@ def create_app(
 
     @app.delete("/api/rules/{filename}", dependencies=auth)
     def delete_rule_endpoint(filename: str) -> dict[str, Any]:
+        require_writable()
         try:
             removed = delete_rule(cfg.rules_dir, filename)
         except RulesIOError as e:
@@ -302,7 +314,11 @@ def create_app(
             results.append({
                 "doc_id": doc_id,
                 "title": doc.get("title", ""),
-                "extraction": extract_with_rule(doc.get("content", "") or "", rule),
+                # /api/test is the editor's "show me what would happen" path,
+                # so always request the trace — the SPA renders it inline.
+                "extraction": extract_with_rule(
+                    doc.get("content", "") or "", rule, trace=True,
+                ),
             })
         return {"results": results}
 
@@ -402,6 +418,7 @@ def create_app(
         Called by the paperless container's PAPERLESS_POST_CONSUME_SCRIPT
         via curl (see scripts/post_consume_via_rules.sh).
         """
+        require_writable()
         rules = load_rules(cfg.rules_dir)
         if not rules:
             return {"doc_id": req.doc_id, "matched": False, "skipped": "no rules loaded"}
@@ -431,6 +448,10 @@ def create_app(
         without PATCHing paperless. `max_docs` caps the sweep at 500 per
         request; the SPA re-clicks for the next batch.
         """
+        # Read-only mode is allowed to dry-run (the whole point — preview
+        # what a rule would do) but never to actually PATCH.
+        if cfg.editor_readonly and not req.dry_run:
+            raise HTTPException(405, "editor is in read-only mode (EDITOR_READONLY=true)")
         # Load just this rule and pass as a single-element list — matches
         # the shape apply_rules_to_document expects.
         try:

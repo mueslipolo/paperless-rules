@@ -12,7 +12,12 @@
 
 services:
   paperless-rules:
-    image: paperless-rules:latest
+    # Pull from ghcr.io — no NAS-side rebuild needed. Pin a version tag
+    # (e.g. ghcr.io/mueslipolo/paperless-rules:0.1.0) for explicit
+    # control; `latest` follows the most recent release.
+    # Local builds: `docker build -t paperless-rules:local .` then
+    # use `image: paperless-rules:local` here.
+    image: ghcr.io/mueslipolo/paperless-rules:latest
     container_name: paperless-rules
     environment:
       PAPERLESS_URL: http://paperless:8000

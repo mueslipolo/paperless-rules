@@ -61,52 +61,54 @@ The poller picks up new documents within `POLL_INTERVAL_SECONDS` (default 60s) a
 
 paperless-rules is packaged as a single image and is designed to live alongside your existing paperless-ngx containers in the same compose stack.
 
-**1. Place the source.** SSH into the NAS or use File Station. Paperless usually lives in `/volume1/docker/paperless/`. Clone the repo next to it:
+**1. Pull the published image.** No source on the NAS, no on-NAS build. The image is published to GHCR for `linux/amd64` and `linux/arm64` (arm64 = Synology DS+ models, "play" series, anything with an Annapurna/Realtek CPU). All you need is your existing paperless `docker-compose.yml`:
 
 ```bash
-cd /volume1/docker
-git clone https://github.com/mueslipolo/paperless-rules.git
+sudo docker pull ghcr.io/mueslipolo/paperless-rules:latest
 ```
 
-**2. Build the image.** Container Manager's UI doesn't build from source directly, so use SSH:
+(Synology runs Docker as root; `sudo` is normal here. Behind a corporate proxy? Container Manager → Registry → Settings handles auth/proxies.)
 
-```bash
-cd /volume1/docker/paperless-rules
-sudo docker build -t paperless-rules:latest .
-```
-
-(Synology runs Docker as root; `sudo` is normal here.)
-
-**3. Add the service to your paperless compose file.** Edit `/volume1/docker/paperless/docker-compose.yml` and add the snippet from `docker-compose.example.yml`. Adjust volume paths to your Synology layout:
+**2. Add the service to your paperless compose file.** Edit your existing paperless `docker-compose.yml` and append the snippet from [`docker-compose.example.yml`](./docker-compose.example.yml). Adjust volume paths to your Synology layout:
 
 ```yaml
   paperless-rules:
-    image: paperless-rules:latest
+    image: ghcr.io/mueslipolo/paperless-rules:latest
     environment:
       PAPERLESS_URL: http://paperless-webserver:8000   # match your paperless service name
       PAPERLESS_TOKEN: ${PAPERLESS_RULES_TOKEN}
-      RUNTIME_MODE: poller
+      RUNTIME_MODE: disabled                           # post-consume + backfill cover everything; see "Modes" below
       TZ: UTC                                          # or your locale, e.g. Europe/Berlin
     volumes:
       - /volume1/docker/paperless-rules/rules:/data/rules
       - /volume1/docker/paperless-rules/state:/data/state
     ports:
-      - "8765:8765"
+      - "127.0.0.1:8765:8765"                          # DSM reverse proxy fronts it; see below
     depends_on:
       - paperless-webserver
     restart: unless-stopped
 ```
 
-**4. Mint the API token** in paperless (Settings → API auth tokens), add `PAPERLESS_RULES_TOKEN=<token>` to your paperless `.env`.
+**3. Mint the API token** in paperless (Settings → API auth tokens), add `PAPERLESS_RULES_TOKEN=<token>` to your paperless `.env`.
 
-**5. Bring it up.** Either via Container Manager → Project → action `Build` and `Start`, or via SSH:
+**4. Bring it up.** Either via Container Manager → *Project → Update* (which runs `docker compose pull && up -d` for you), or via SSH:
 
 ```bash
 cd /volume1/docker/paperless
 sudo docker compose up -d paperless-rules
 ```
 
-**6. Open the editor** at `http://<nas-ip>:8765`. On first visit you'll be asked for a paperless API token — see *Authentication* below.
+**5. Open the editor** at `http://<nas-ip>:8765`. On first visit you'll be asked for a paperless API token — see *Authentication* below.
+
+#### Updating to a new version
+
+Once the service is running, updates are **one command** (or one button). The image is pulled from `ghcr.io`; nothing builds on the NAS.
+
+```bash
+sudo docker compose pull paperless-rules && sudo docker compose up -d paperless-rules
+```
+
+In Container Manager: *Project → Action → Update* triggers the same pull-and-restart. Pin a specific version (`ghcr.io/mueslipolo/paperless-rules:0.1.0`) instead of `:latest` if you want to control rollouts.
 
 #### Behind DSM reverse proxy with HTTPS (recommended)
 
@@ -130,6 +132,32 @@ When the editor isn't strictly LAN-only, terminate TLS at DSM and keep the conta
 3. **Issue a TLS cert** for that hostname: *Control Panel → Security → Certificate*. Let's Encrypt over DNS-01 if you have a public domain; otherwise import a self-signed cert via the same UI.
 
 4. Visit `https://rules.your-syno.lan` — you'll get the editor's login screen, paste the paperless token from step 4 of the install, and you're in.
+
+### Modes (which `RUNTIME_MODE` should I pick?)
+
+There are three runtime modes, and the right answer for almost every Synology install is **`disabled`** — let post-consume cover new docs and the editor's Backfill button cover everything else.
+
+| mode | catches new docs | catches re-OCR / late edits | requires paperless config | continuous load |
+|---|---|---|---|---|
+| `disabled` | post-consume webhook (instant) | editor *Backfill* button (on demand) | yes — `PAPERLESS_POST_CONSUME_SCRIPT` | none |
+| `poller` | next poll (≤ 60 s) | next poll | no | one paperless scan / minute, 24/7 |
+| `post_consume` | post-consume only | nothing | yes — `PAPERLESS_POST_CONSUME_SCRIPT` | none |
+
+**`disabled` (recommended)** — the editor stays up, post-consume fires per doc, and the *Backfill* button picks up rule changes. No background load. Pair with `scripts/post_consume_via_rules.sh` which paperless invokes via `PAPERLESS_POST_CONSUME_SCRIPT`.
+
+**`poller`** — useful when you can't (or don't want to) edit your paperless compose to wire post-consume. Trades latency and continuous load for zero touch on paperless. The poller hot-reloads rules via mtime: edit/disable a rule in the browser, the poller picks it up on the next iteration without a container restart.
+
+**`post_consume`** — the runtime is identical to `disabled` (since the editor's `/api/post-consume` endpoint does all the work). Listed for completeness; `disabled` is the cleaner spelling for the same outcome.
+
+### Read-only / laptop dev mode
+
+Set `EDITOR_READONLY=true` to make the editor refuse every mutation — rule writes, rule deletes, post-consume, and non-dry-run apply all 405 out. The editor still loads docs, evaluates regexes, and shows what a rule *would* do. Pair with `EDITOR_AUTH_REQUIRED=false` and a server-side `PAPERLESS_TOKEN` to skip the login modal entirely. See [`.env.dev.example`](./.env.dev.example).
+
+```bash
+cp .env.dev.example .env
+# edit PAPERLESS_URL + PAPERLESS_TOKEN
+uv run paperless-rules editor
+```
 
 ### Authentication
 

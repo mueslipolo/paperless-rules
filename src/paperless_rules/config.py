@@ -19,6 +19,11 @@ class Config:
     editor_host: str = "0.0.0.0"
     editor_port: int = 8765
     editor_auth_required: bool = True
+    # Read-only mode: the editor refuses every mutation (rule writes/deletes,
+    # post-consume webhook, non-dry-run apply). Designed for laptop dev where
+    # you point at remote paperless via PAPERLESS_TOKEN and just want to test
+    # rules without risking a stray PATCH.
+    editor_readonly: bool = False
     runtime_mode: str = "disabled"  # post_consume | poller | disabled
     poll_interval_seconds: int = 60
     poll_filter: str = ""
@@ -49,6 +54,7 @@ class Config:
             editor_host=e.get("EDITOR_HOST", "0.0.0.0"),
             editor_port=int(e.get("EDITOR_PORT", "8765")),
             editor_auth_required=e.get("EDITOR_AUTH_REQUIRED", "true").lower() in ("true", "1", "yes", "on"),
+            editor_readonly=e.get("EDITOR_READONLY", "false").lower() in ("true", "1", "yes", "on"),
             runtime_mode=e.get("RUNTIME_MODE", "disabled"),
             poll_interval_seconds=int(e.get("POLL_INTERVAL_SECONDS", "60")),
             poll_filter=e.get("POLL_FILTER", ""),
