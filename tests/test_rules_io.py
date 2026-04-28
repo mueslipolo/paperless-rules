@@ -35,7 +35,8 @@ def test_list_alphabetical_with_summary(tmp_path):
     rules = list_rules(tmp_path)
     assert [r["filename"] for r in rules] == ["01_a.yml", "10_b.yml"]
     assert rules[0] == {
-        "filename": "01_a.yml", "match": "A", "field_count": 1, "enabled": True,
+        "filename": "01_a.yml", "name": "a",
+        "match": "A", "field_count": 1, "enabled": True,
     }
 
 

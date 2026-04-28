@@ -130,7 +130,8 @@ def test_save_then_list_then_load(app_client):
     assert app_client.post("/api/rules", json={"filename": "01_test.yml", "yaml": text}).status_code == 200
     listing = app_client.get("/api/rules").json()
     assert listing["rules"][0] == {
-        "filename": "01_test.yml", "match": "Test", "field_count": 0, "enabled": True,
+        "filename": "01_test.yml", "name": "test",
+        "match": "Test", "field_count": 0, "enabled": True,
     }
     assert app_client.get("/api/rules/01_test.yml").json()["yaml"] == text
 

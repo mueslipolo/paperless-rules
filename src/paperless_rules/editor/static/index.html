@@ -67,13 +67,19 @@
   }
   .topbar .crumbs { color: var(--ink-soft); }
   .topbar .crumbs b { color: var(--ink); font-weight: 600; }
-  .topbar input.filename {
+  .topbar .rule-name-input {
     background: var(--bg-card); border: 1px solid var(--line-input);
     border-radius: 3px; padding: 3px 8px;
     font-family: var(--mono); font-size: 12px; color: var(--ink);
-    min-width: 220px;
+    min-width: 240px;
   }
-  .topbar input.filename:focus { outline: none; border-color: var(--accent); }
+  .topbar .rule-name-input:focus { outline: none; border-color: var(--accent); }
+  .topbar .rule-filename-hint {
+    color: var(--ink-soft); font-size: 10px;
+    font-family: var(--mono); opacity: 0.6;
+    max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .topbar .rule-filename-hint:empty { display: none; }
   .dirty-dot {
     display: inline-block; width: 6px; height: 6px; border-radius: 50%;
     background: var(--amber); opacity: 0; transition: opacity 0.15s;
@@ -141,6 +147,22 @@
     padding: 0; text-transform: none; letter-spacing: 0;
   }
   .pane-section button.inline:hover { color: var(--accent); }
+  .pane-section-actions {
+    display: inline-flex; gap: 8px; align-items: center;
+  }
+  .rule-item .drag-handle {
+    color: var(--ink-soft); cursor: grab; user-select: none;
+    opacity: 0; transition: opacity 0.1s; font-size: 10px;
+    width: 10px; flex-shrink: 0;
+  }
+  .rule-item:hover .drag-handle { opacity: 0.6; }
+  .rule-item.dragging { opacity: 0.4; cursor: grabbing; }
+  .rule-item.drop-above { border-top: 2px solid var(--accent); }
+  .rule-item.drop-below { border-bottom: 2px solid var(--accent); }
+  .rule-item .filename-sub {
+    color: var(--ink-soft); font-size: 9px; opacity: 0.6;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
   .rule-item, .doc-item {
     padding: 6px 14px; cursor: pointer;
     border-left: 2px solid transparent;
@@ -983,7 +1005,10 @@
 <div class="app">
   <div class="topbar">
     <span class="brand">paperless·rules</span>
-    <input type="text" class="filename" id="filename-input" placeholder="01_my_rule.yml">
+    <input type="text" class="rule-name-input" id="rule-name-input"
+           placeholder="My rule"
+           title="display name — saved to disk as a slugified .yml on the server">
+    <span class="rule-filename-hint" id="rule-filename-hint" title="actual filename on disk"></span>
     <label class="enabled-toggle" id="enabled-toggle" title="toggle this rule's enabled state — runtime picks up the change immediately">
       <input type="checkbox" id="enabled-checkbox" checked>
       <span>enabled</span>
@@ -1004,7 +1029,12 @@
     <aside class="pane-left">
       <div class="pane-section">
         <span>rules</span>
-        <button class="inline" id="btn-new-rule" title="new rule (⌘N)">+ new</button>
+        <span class="pane-section-actions">
+          <button class="inline" id="btn-export-rule" title="download the active rule's YAML">↓ export</button>
+          <button class="inline" id="btn-import-rule" title="upload a YAML rule file">↑ import</button>
+          <button class="inline" id="btn-new-rule" title="new rule (⌘N)">+ new</button>
+          <input type="file" id="import-file" accept=".yml,.yaml,application/x-yaml,text/yaml" hidden>
+        </span>
       </div>
       <div id="rule-list"></div>
 
@@ -1340,8 +1370,9 @@ function synthesizeAdvancedYaml(f) {
 // ── state ───────────────────────────────────────────────────────────
 
 const state = {
-  rules: [],                  // [{filename, ...}]
-  currentFilename: "",
+  rules: [],                  // [{filename, name, ...}]
+  currentFilename: "",        // implementation detail — server-side filename
+  currentName: "",            // user-facing display name
   dirty: false,
   rule: emptyRule(),
 
@@ -1372,6 +1403,7 @@ const state = {
 
 function emptyRule() {
   return {
+    name: "",                 // display name (top-level `name:` in YAML)
     enabled: true,            // top-level enabled: false parks the rule
     match: "",
     exclude: "",
@@ -1428,6 +1460,14 @@ const api = {
     api.json(`/api/rules/${encodeURIComponent(filename)}/apply`, {
       method: "POST", body: JSON.stringify(body),
     }),
+  newRule:          (name) =>
+    api.json("/api/rules/new", { method: "POST", body: JSON.stringify({ name }) }),
+  renameRule:       (filename, name) =>
+    api.json(`/api/rules/${encodeURIComponent(filename)}/rename`, {
+      method: "POST", body: JSON.stringify({ name }),
+    }),
+  reorderRules:     (filenames) =>
+    api.json("/api/rules/reorder", { method: "POST", body: JSON.stringify({ filenames }) }),
 };
 
 function corpusIds() {
@@ -1499,6 +1539,7 @@ function parseRule(yamlText) {
     else if (sec.key === "required") r.required = parseInlineList(sec.inline) || parseBlockList(sec.body);
     else if (sec.key === "options") parseOptionsBlock(sec.body, r);
     else if (sec.key === "enabled") r.enabled = unquote(sec.inline).toLowerCase() !== "false";
+    else if (sec.key === "name")    r.name = unquote(sec.inline);
     else r.extras[sec.key] = (sec.inline ? sec.inline : "") + (sec.body.length ? "\n" + sec.body.join("\n") : "");
   }
   return r;
@@ -1612,6 +1653,8 @@ function parseOptionsBlock(body, r) {
 
 function serializeRule(r) {
   const out = [];
+  // `name:` first so the file's intent is obvious when read raw.
+  if (r.name) out.push(`name: ${yqStr(r.name)}`);
   // `enabled: true` is the default and we don't emit it; only write the
   // line when the rule is explicitly disabled (so a clean rule's YAML
   // doesn't grow a noisy line).
@@ -1719,7 +1762,9 @@ function renderHealth(s) {
 }
 
 function renderTopbar() {
-  $("#filename-input").value = state.currentFilename;
+  const inp = $("#rule-name-input");
+  if (inp.value !== state.currentName) inp.value = state.currentName;
+  $("#rule-filename-hint").textContent = state.currentFilename || "";
   $("#dirty-dot").classList.toggle("dirty", state.dirty);
   const enabled = state.rule.enabled !== false;
   $("#enabled-checkbox").checked = enabled;
@@ -1730,6 +1775,67 @@ function setSaveStatus(cls, text) {
   const el = $("#save-status");
   el.className = cls || "";
   el.textContent = text;
+}
+
+function setupRuleListDragReorder() {
+  // Native HTML5 DnD on the rule-list. Each row is draggable; we track
+  // the dragging row, decorate the hover target with drop-above/below,
+  // and on drop reorder state.rules + POST /api/rules/reorder.
+  const list = $("#rule-list");
+  let draggingFilename = null;
+
+  list.addEventListener("dragstart", e => {
+    const item = e.target.closest(".rule-item");
+    if (!item) return;
+    draggingFilename = item.dataset.filename;
+    item.classList.add("dragging");
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", draggingFilename);
+  });
+
+  list.addEventListener("dragend", () => {
+    list.querySelectorAll(".rule-item.dragging,.drop-above,.drop-below")
+        .forEach(el => el.classList.remove("dragging", "drop-above", "drop-below"));
+    draggingFilename = null;
+  });
+
+  list.addEventListener("dragover", e => {
+    const item = e.target.closest(".rule-item");
+    if (!item || item.dataset.filename === draggingFilename) return;
+    e.preventDefault();   // allow drop
+    list.querySelectorAll(".drop-above,.drop-below")
+        .forEach(el => el.classList.remove("drop-above", "drop-below"));
+    const rect = item.getBoundingClientRect();
+    const above = (e.clientY - rect.top) < rect.height / 2;
+    item.classList.add(above ? "drop-above" : "drop-below");
+  });
+
+  list.addEventListener("drop", async e => {
+    const item = e.target.closest(".rule-item");
+    if (!item || !draggingFilename || item.dataset.filename === draggingFilename) return;
+    e.preventDefault();
+    const above = item.classList.contains("drop-above");
+    const targetFn = item.dataset.filename;
+    // Build the new order locally first (optimistic).
+    const filenames = state.rules.map(r => r.filename);
+    const fromIdx = filenames.indexOf(draggingFilename);
+    if (fromIdx === -1) return;
+    filenames.splice(fromIdx, 1);
+    let toIdx = filenames.indexOf(targetFn);
+    if (!above) toIdx += 1;
+    filenames.splice(toIdx, 0, draggingFilename);
+    try {
+      const r = await api.reorderRules(filenames);
+      // The active rule's filename may have changed if its prefix moved.
+      if (state.currentFilename && r.renamed?.[state.currentFilename]) {
+        state.currentFilename = r.renamed[state.currentFilename];
+        try { localStorage.setItem("paperless-rules:active", state.currentFilename); } catch {}
+      }
+      await loadRules();
+    } catch (err) {
+      alert(`reorder failed: ${err.message}`);
+    }
+  });
 }
 
 function renderRuleList() {
@@ -1743,11 +1849,14 @@ function renderRuleList() {
     const dotCls = disabled ? "dot warn" : "dot";
     const dimCls = disabled ? " disabled" : "";
     const tag = disabled ? '<span class="meta off">off</span>' : "";
+    const display = r.name || r.filename;
     return `
     <div class="rule-item${dimCls} ${r.filename === state.currentFilename ? "active" : ""}"
+         draggable="true"
          data-filename="${escAttr(r.filename)}" title="${escAttr(r.filename)}${disabled ? " · disabled (enabled: false)" : ""}">
+      <span class="drag-handle" title="drag to reorder">⋮⋮</span>
       <span class="${dotCls}"></span>
-      <span class="name">${esc(r.filename)}</span>
+      <span class="name">${esc(display)}</span>
       ${tag}
       <span class="meta">${(r.field_count || 0)}f</span>
     </div>`;
@@ -1848,12 +1957,12 @@ function setStep(n) {
 }
 
 function renderRuleHeader() {
-  $("#rule-name").textContent = state.currentFilename || "— no rule —";
+  $("#rule-name").textContent = state.currentName || "— no rule —";
   const fcount = state.rule.fields.length;
   const corpusCount = state.docs.length;
   $("#rule-sub").textContent =
-    (state.currentFilename ? `${fcount} field${fcount === 1 ? "" : "s"}` : "") +
-    (corpusCount ? `${state.currentFilename ? " · " : ""}${corpusCount} doc${corpusCount === 1 ? "" : "s"} in corpus` : "");
+    (state.currentName ? `${fcount} field${fcount === 1 ? "" : "s"}` : "") +
+    (corpusCount ? `${state.currentName ? " · " : ""}${corpusCount} doc${corpusCount === 1 ? "" : "s"} in corpus` : "");
 }
 
 function renderOcrView() {
@@ -2997,6 +3106,11 @@ async function loadRule(filename) {
     const r = await api.getRule(filename);
     state.currentFilename = filename;
     state.rule = parseRule(r.yaml);
+    // Display name: the rule's `name:` field if it has one, else the
+    // entry from /api/rules's listing (which derives from the filename).
+    state.currentName = state.rule.name
+      || (state.rules.find(x => x.filename === filename)?.name)
+      || filename.replace(/^\d{2}_/, "").replace(/\.ya?ml$/, "").replace(/_/g, " ");
     state.dirty = false;
     setSaveStatus("", "loaded");
     renderAll();
@@ -3007,16 +3121,17 @@ async function loadRule(filename) {
   }
 }
 
-function newRule() {
-  state.currentFilename = "";
-  state.rule = emptyRule();
-  state.dirty = false;
-  state.extraction = null;
-  setSaveStatus("", "—");
-  renderAll();
-  $("#filename-input").focus();
-  try { localStorage.removeItem("paperless-rules:active"); } catch {}
-  loadDocs();   // back to search-mode doc list (no match yet)
+async function newRule() {
+  // Ask for a display name; server picks the slug+prefix.
+  const name = (prompt("Name this rule:", "") || "").trim();
+  if (!name) return;
+  try {
+    const r = await api.newRule(name);
+    await loadRules();
+    await loadRule(r.filename);
+  } catch (e) {
+    alert(`could not create rule: ${e.message}`);
+  }
 }
 
 async function deleteCurrentRule() {
@@ -3250,6 +3365,7 @@ function wire() {
     const item = e.target.closest(".rule-item");
     if (item) loadRule(item.dataset.filename);
   });
+  setupRuleListDragReorder();
   $("#rule-list").addEventListener("contextmenu", e => {
     const item = e.target.closest(".rule-item");
     if (!item) return;
@@ -3264,6 +3380,55 @@ function wire() {
     }
   });
   $("#btn-new-rule").addEventListener("click", newRule);
+
+  // Export the active rule's YAML as a downloadable .yml file.
+  $("#btn-export-rule").addEventListener("click", async () => {
+    if (!state.currentFilename) {
+      alert("No rule loaded.");
+      return;
+    }
+    try {
+      const r = await api.getRule(state.currentFilename);
+      const blob = new Blob([r.yaml], { type: "application/x-yaml" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = state.currentFilename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      alert(`export failed: ${e.message}`);
+    }
+  });
+
+  // Import: pick a .yml file, POST to /api/rules. The server keeps the
+  // filename you upload, so well-formed `01_foo.yml` files preserve their
+  // intended order; ad-hoc names get sorted lexically.
+  $("#btn-import-rule").addEventListener("click", () => $("#import-file").click());
+  $("#import-file").addEventListener("change", async e => {
+    const file = e.target.files?.[0];
+    e.target.value = "";    // allow re-importing the same name
+    if (!file) return;
+    let yamlText;
+    try {
+      yamlText = await file.text();
+    } catch (err) {
+      alert(`could not read file: ${err.message}`);
+      return;
+    }
+    let filename = file.name;
+    if (!/\.ya?ml$/i.test(filename)) filename = filename + ".yml";
+    try {
+      await api.saveRule(filename, yamlText);
+      await loadRules();
+      await loadRule(filename);
+      setSaveStatus("ok", `imported ${filename}`);
+    } catch (err) {
+      alert(`import failed: ${err.message}`);
+    }
+  });
   $("#doc-list").addEventListener("click", async e => {
     const item = e.target.closest(".doc-item");
     if (item) {
@@ -3306,10 +3471,35 @@ function wire() {
     rows[rows.length - 1]?.querySelector("input.name-input")?.focus();
   });
 
-  $("#filename-input").addEventListener("input", e => {
-    state.currentFilename = e.target.value;
+  // Renaming: edit the display name → server slugifies + renames the file
+  // on the rules dir, returns the new filename, SPA updates references.
+  // Debounced so typing doesn't fire a rename per keystroke.
+  const debouncedRename = debounce(async () => {
+    if (!state.currentFilename) return;
+    const wanted = state.currentName.trim();
+    if (!wanted) return;
+    try {
+      const r = await api.renameRule(state.currentFilename, wanted);
+      if (r.filename && r.filename !== state.currentFilename) {
+        state.currentFilename = r.filename;
+        try { localStorage.setItem("paperless-rules:active", r.filename); } catch {}
+        await loadRules();
+        renderTopbar();
+        // Patch the parsed rule's name so serialise round-trips
+        state.rule.name = wanted;
+      }
+    } catch (e) {
+      // Surface but don't strand — name field stays as-typed; the rename
+      // will retry on the next pause in typing.
+      setSaveStatus("error", `rename failed: ${e.message.slice(0, 60)}`);
+    }
+  }, 800);
+  $("#rule-name-input").addEventListener("input", e => {
+    state.currentName = e.target.value;
+    state.rule.name = state.currentName;     // round-trip into the YAML
     markDirty();
-    renderRuleHeader();
+    renderTopbar();
+    debouncedRename();
     debouncedSerializeAndSave();
   });
 

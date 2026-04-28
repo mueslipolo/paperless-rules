@@ -20,14 +20,26 @@ from paperless_rules.engine import coerce_value, extract_with_rule, load_rules
 from paperless_rules.paperless_client import PaperlessClient, PaperlessError
 from paperless_rules.rules_io import (
     RulesIOError,
+    auto_filename,
     delete_rule,
     list_rules,
+    rename_rule,
+    reorder_rules,
     read_rule,
     write_rule,
 )
 from paperless_rules.runtime.apply import ResolutionCache, apply_rules_to_document
 
 __APP_VERSION__ = "0.1.0"
+
+_AUTO_PREFIX_RE = _re.compile(r"^(\d{2})_")
+
+
+def _extract_prefix(filename: str) -> int | None:
+    """Pull the NN_ prefix off an auto-generated filename so the rename
+    helper preserves the rule's evaluation order."""
+    m = _AUTO_PREFIX_RE.match(filename)
+    return int(m.group(1)) if m else None
 
 
 class RuleSaveRequest(BaseModel):
@@ -51,6 +63,24 @@ class RegexTestRequest(BaseModel):
 
 class BootstrapRequest(BaseModel):
     doc_id: int
+
+
+class RenameRequest(BaseModel):
+    """Rename a rule from a free-text display name. The server slugifies
+    the name, preserves the existing NN_ prefix, and renames the file."""
+    name: str
+
+
+class ReorderRequest(BaseModel):
+    """Drag-to-reorder payload. ``filenames`` is the desired order; the
+    server renumbers the NN_ prefixes and renames files accordingly."""
+    filenames: list[str]
+
+
+class NewRuleRequest(BaseModel):
+    """Create an empty rule from a display name. Server picks the next
+    NN_ prefix and slugifies the name into the filename body."""
+    name: str
 
 
 class PostConsumeRequest(BaseModel):
@@ -284,6 +314,54 @@ def create_app(
         except RulesIOError as e:
             raise HTTPException(400, str(e)) from e
         return {"ok": True, "filename": req.filename}
+
+    @app.post("/api/rules/{filename}/rename", dependencies=auth)
+    def rename_rule_endpoint(filename: str, req: RenameRequest) -> dict[str, Any]:
+        """Rename a rule from a new display name. Preserves the NN_ prefix
+        so evaluation order is unchanged."""
+        require_writable()
+        try:
+            new_filename = auto_filename(req.name, cfg.rules_dir,
+                                         prefix=_extract_prefix(filename))
+            new_filename = rename_rule(cfg.rules_dir, filename, new_filename)
+        except RulesIOError as e:
+            raise HTTPException(400, str(e)) from e
+        # Rewrite the rule's `name:` field too so the slug + display label
+        # stay in sync after the file moves.
+        try:
+            yaml_text = read_rule(cfg.rules_dir, new_filename)
+            data = yaml.safe_load(yaml_text) or {}
+            if isinstance(data, dict):
+                data = {"name": req.name, **{k: v for k, v in data.items() if k != "name"}}
+                write_rule(cfg.rules_dir, new_filename, yaml.safe_dump(data, sort_keys=False, allow_unicode=True))
+        except (RulesIOError, yaml.YAMLError):
+            pass  # filename change still applied; YAML refresh is best-effort
+        return {"ok": True, "filename": new_filename}
+
+    @app.post("/api/rules/reorder", dependencies=auth)
+    def reorder_rules_endpoint(req: ReorderRequest) -> dict[str, Any]:
+        require_writable()
+        try:
+            renamed = reorder_rules(cfg.rules_dir, req.filenames)
+        except RulesIOError as e:
+            raise HTTPException(400, str(e)) from e
+        return {"ok": True, "renamed": renamed}
+
+    @app.post("/api/rules/new", dependencies=auth)
+    def new_rule_endpoint(req: NewRuleRequest) -> dict[str, Any]:
+        """Create a blank rule with a display name. Server picks the
+        filename. SPA hits this when the user clicks "+ new rule"."""
+        require_writable()
+        filename = auto_filename(req.name, cfg.rules_dir)
+        body = yaml.safe_dump(
+            {"name": req.name, "match": "", "exclude": "", "fields": {}},
+            sort_keys=False, allow_unicode=True, default_flow_style=False,
+        )
+        try:
+            write_rule(cfg.rules_dir, filename, body)
+        except RulesIOError as e:
+            raise HTTPException(400, str(e)) from e
+        return {"ok": True, "filename": filename, "name": req.name}
 
     @app.delete("/api/rules/{filename}", dependencies=auth)
     def delete_rule_endpoint(filename: str) -> dict[str, Any]:
