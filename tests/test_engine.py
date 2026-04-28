@@ -90,8 +90,13 @@ def test_empty_exclude_is_ignored():
 
 
 @pytest.mark.parametrize("fname,spec,expected_type,expected_value", [
-    ("amount", r"Total à payer\s+EUR\s+([\d ,-]+)", "float", 1234.5),
-    ("date", r"Date d'émission\s+(\d{2}\.\d{2}\.\d{4})", "date", "2024-03-15"),
+    # type is now always explicit — there is no "amount" → float / "date"
+    # → date inference. The bare-regex shorthand still works, it just
+    # produces a "str" field by default.
+    ("amount", {"regex": r"Total à payer\s+EUR\s+([\d ,-]+)", "type": "float"},
+     "float", 1234.5),
+    ("date", {"regex": r"Date d'émission\s+(\d{2}\.\d{2}\.\d{4})", "type": "date"},
+     "date", "2024-03-15"),
     ("invoice_number",
      [r"NotPresent\s+(\d+)", r"Numéro de facture\s+(\d+)"], "str", "987654321"),
     ("ref", {"regex": r"Numéro de client\s+(\d+)", "type": "str"},

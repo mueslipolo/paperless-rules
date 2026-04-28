@@ -49,7 +49,7 @@ Currency, date formats, language, and matching tags are all configurable per rul
    docker compose up -d paperless-rules
    ```
 6. **Open the editor** at `http://localhost:8765`. The health pill should say `paperless: connected`.
-7. **Author a rule**: open one of your recurring documents, click `bootstrap`, accept the suggested keywords + fields, fill in the regex for `amount` using the live tester, click `save`.
+7. **Author a rule**: click `+ new`, name it ("Acme invoices"), write a `match:` regex that's specific enough to fire only on that issuer's docs, add the fields you want to extract (each a regex with one capture group + a type), and use the live tester / outcome cards to confirm the right docs match and the right values come out. The editor saves to disk on every keystroke.
 
 The poller picks up new documents within `POLL_INTERVAL_SECONDS` (default 60s) and writes back metadata. Existing documents can be back-filled with `paperless-rules backfill`.
 
@@ -189,7 +189,8 @@ The image is a multi-stage Python 3.12 build, runs as a non-root user (`paperles
 ┌──────────────────┐              ┌──────────────────┐
 │   editor (8765)  │ ◄─── read ── │   paperless      │
 │   regex tester   │              │                  │
-│   bootstrap      │              │                  │
+│   discover/test  │              │                  │
+│   backfill (UI)  │              │                  │
 ├──────────────────┤              │                  │
 │   runtime        │ ── PATCH ──▶ │                  │
 │   poller / hook  │              │                  │
@@ -543,7 +544,6 @@ Repo layout:
 ```
 src/paperless_rules/
   engine.py            rule engine (pure function)
-  bootstrap.py         heuristic rule generation
   rules_io.py          YAML load/save with path-traversal protection
   paperless_client.py  async paperless API wrapper
   config.py            env-driven config

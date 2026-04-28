@@ -74,23 +74,6 @@ class TestEditorAgainstRealPaperless:
         # At least one doc has an EUR amount (the Acme fixture).
         assert any(x["match_count"] > 0 for x in body["results"])
 
-    def test_bootstrap_against_acme_fixture(
-        self, app_client, seeded_doc_ids
-    ):
-        # Find Acme doc id
-        for doc_id in seeded_doc_ids:
-            text = app_client.get(f"/api/documents/{doc_id}/text").json()["content"]
-            if "Acme" in text:
-                break
-        else:
-            pytest.fail("no Acme doc seeded")
-
-        r = app_client.post("/api/bootstrap", json={"doc_id": doc_id})
-        assert r.status_code == 200
-        body = r.json()
-        assert "Acme" in body["issuer"]
-        assert body["currency"] == "EUR"
-        assert any(f["name"] == "amount" for f in body["fields"])
 
     def test_full_rule_test_extracts_amount(
         self, app_client, seeded_doc_ids

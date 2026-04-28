@@ -227,21 +227,6 @@ def test_case_insensitive_flag(app_client):
     assert body["results"][0]["match_count"] >= 1
 
 
-# ── bootstrap ────────────────────────────────────────────────────────
-
-
-def test_bootstrap_returns_suggestion(app_client):
-    body = app_client.post("/api/bootstrap", json={"doc_id": 42}).json()
-    assert set(body) == {"match", "exclude", "filename_suggestion", "language", "currency"}
-    assert body["currency"] == "EUR" and body["language"] == "fr"
-    assert body["match"]                                # non-empty seed (doctype hint)
-    assert body["filename_suggestion"].endswith(".yml")
-
-
-def test_bootstrap_missing_doc_404(app_client):
-    assert app_client.post("/api/bootstrap", json={"doc_id": 9999}).status_code == 404
-
-
 # ── static SPA ───────────────────────────────────────────────────────
 
 

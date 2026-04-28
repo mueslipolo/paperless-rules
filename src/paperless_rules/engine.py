@@ -53,20 +53,8 @@ _BUILTIN_DATES = [
     "%d-%b-%Y", "%d-%B-%Y",
 ]
 
-_FLOAT_HINTS = ("amount", "total", "price", "sum", "tva", "vat", "tax", "montant")
-_DATE_HINTS = ("date", "due", "echeance", "échéance", "issued", "period", "fällig")
-
 # Match `{name}` placeholders in templates.
 _TEMPLATE_RE = re.compile(r"\{([a-zA-Z_][a-zA-Z0-9_]*)\}")
-
-
-def _infer_type(name: str) -> str:
-    n = name.lower()
-    if any(h in n for h in _FLOAT_HINTS):
-        return "float"
-    if any(h in n for h in _DATE_HINTS):
-        return "date"
-    return "str"
 
 
 def _coerce_float(raw: str) -> float | None:
@@ -161,12 +149,12 @@ def _eval_regex_field(
     """The classic capture-group regex with optional transforms."""
     if isinstance(spec, str):
         patterns: list[str] = [spec]
-        ftype = _infer_type(name)
+        ftype = "str"
         opts: dict[str, Any] = {}
         internal = False
     elif isinstance(spec, list):
         patterns = [str(p) for p in spec]
-        ftype = _infer_type(name)
+        ftype = "str"
         opts = {}
         internal = False
     elif isinstance(spec, dict):
@@ -176,13 +164,13 @@ def _eval_regex_field(
             else [str(p) for p in regex] if isinstance(regex, list)
             else []
         )
-        ftype = str(spec.get("type") or _infer_type(name))
+        ftype = str(spec.get("type") or "str")
         opts = {k: spec[k] for k in
                 ("default", "match", "pick", "map", "aggregate", "combine")
                 if k in spec}
         internal = bool(spec.get("internal", False))
     else:
-        return _empty_result(_infer_type(name), False) | {"error": "invalid spec"}
+        return _empty_result("str", False) | {"error": "invalid spec"}
 
     result = _empty_result(ftype, internal)
 
@@ -362,7 +350,7 @@ def _eval_value_field(
     name: str, spec: dict[str, Any], formats: list[str]
 ) -> dict[str, Any]:
     """Constant value, coerced by type. Lists pass through as-is (for tags)."""
-    ftype = str(spec.get("type") or _infer_type(name))
+    ftype = str(spec.get("type") or "str")
     internal = bool(spec.get("internal", False))
     raw = spec["value"]
     if isinstance(raw, list):
@@ -394,14 +382,14 @@ def _resolve_template(
     Recursively resolves template-references-template; cycles → error."""
     spec = fields_spec.get(name)
     if not isinstance(spec, dict) or "template" not in spec:
-        return _empty_result(_infer_type(name), False) | {"kind": "template", "error": "not a template"}
+        return _empty_result("str", False) | {"kind": "template", "error": "not a template"}
     if name in visiting:
-        return _empty_result(str(spec.get("type") or _infer_type(name)), bool(spec.get("internal"))) | {
+        return _empty_result(str(spec.get("type") or "str"), bool(spec.get("internal"))) | {
             "kind": "template", "error": "template cycle"
         }
     visiting.add(name)
     template = str(spec["template"])
-    ftype = str(spec.get("type") or _infer_type(name))
+    ftype = str(spec.get("type") or "str")
     internal = bool(spec.get("internal", False))
 
     def sub(m: re.Match[str]) -> str:

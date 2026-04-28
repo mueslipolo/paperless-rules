@@ -13,7 +13,6 @@ from fastapi.responses import Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from paperless_rules import bootstrap as bootstrap_module
 from paperless_rules.config import Config
 from paperless_rules.editor.auth import make_auth_dep
 from paperless_rules.engine import coerce_value, extract_with_rule, load_rules
@@ -59,10 +58,6 @@ class RegexTestRequest(BaseModel):
     text: str | None = None
     type: str | None = None
     date_formats: list[str] | None = None
-
-
-class BootstrapRequest(BaseModel):
-    doc_id: int
 
 
 class RenameRequest(BaseModel):
@@ -601,14 +596,6 @@ def create_app(
             "truncated": truncated,
             "results": results,
         }
-
-    @app.post("/api/bootstrap", dependencies=auth)
-    async def bootstrap_endpoint(req: BootstrapRequest) -> dict[str, Any]:
-        try:
-            doc = await require_paperless().get_document(req.doc_id)
-        except PaperlessError as e:
-            raise HTTPException(404, str(e)) from e
-        return bootstrap_module.bootstrap_from_text(doc.get("content", "") or "")
 
     # SPA — mount LAST so /api/* routes match first.
     static_dir = Path(__file__).parent / "static"
