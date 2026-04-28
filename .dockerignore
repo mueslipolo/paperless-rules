@@ -1,6 +1,8 @@
 .venv/
 .git/
 .github/
+.gitignore
+.gitattributes
 __pycache__/
 *.py[cod]
 *.egg-info/
@@ -8,11 +10,18 @@ __pycache__/
 .ruff_cache/
 .mypy_cache/
 tests/
+scripts/
+docs/
 docker-compose*.yml
+Dockerfile*
+.dockerignore
 .env
 .env.*
 state/
+rules/
 *.md
 !README.md
 .idea/
 .vscode/
+uv.lock
+mock-editor*.html
