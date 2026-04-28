@@ -2911,8 +2911,7 @@ async function loadHealth() {
     authRequired = !!h.auth_required;
     readOnly = !!h.readonly;
     document.body.classList.toggle("readonly", readOnly);
-    // On Synology setups the paperless URL doubles as the hint for where
-    // to mint the token. Try to make it clickable when known.
+    // The known paperless URL is also where the user mints the token.
     const url = h.paperless?.url || "";
     if (url) $("#login-hint-url").textContent = url.replace(/\/$/, "") + "/profile/";
     // If auth isn't required (LAN-only mode) keep the logout button hidden.

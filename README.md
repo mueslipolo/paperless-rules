@@ -1,8 +1,8 @@
 # paperless-rules
 
-Rule-based document classification and metadata extraction for [paperless-ngx](https://github.com/paperless-ngx/paperless-ngx). YAML rules + a browser editor + a small runtime that PATCHes paperless. Regex-only, deterministic, no LLM, no database.
+Rule-based document classification and metadata extraction for [paperless-ngx](https://github.com/paperless-ngx/paperless-ngx). YAML rules + a browser editor + a small runtime that PATCHes paperless metadata.
 
-Image: `ghcr.io/mueslipolo/paperless-rules:latest` (multi-arch: `amd64` + `arm64`, ~75 MB Alpine).
+Image: `ghcr.io/mueslipolo/paperless-rules:latest` (multi-arch `amd64` + `arm64`, ~75 MB Alpine).
 
 ---
 
@@ -24,55 +24,54 @@ Image: `ghcr.io/mueslipolo/paperless-rules:latest` (multi-arch: `amd64` + `arm64
 
 ## Install
 
-### Synology NAS (DSM 7 / Container Manager)
+paperless-rules ships as a single container that lives next to your existing paperless-ngx stack and joins the same docker network.
 
-The image is published to GHCR for `linux/amd64` and `linux/arm64`. No on-NAS build.
+### Quick start
 
-1. **Make the public image accessible** to your NAS once: visit https://github.com/users/mueslipolo/packages/container/paperless-rules/settings → Visibility → **Public**. (Or `docker login ghcr.io` with a personal access token if you prefer to keep it private.)
-2. **Mint a paperless API token**: Settings → API auth tokens → Create. Save it as `PAPERLESS_RULES_TOKEN` in the same `.env` your paperless compose reads.
-3. **Pre-create the volumes** with the same UID:GID paperless writes as (typically `1035:100` on Synology):
-   ```bash
-   sudo mkdir -p /volume1/docker/paperless-rules/{rules,state}
-   sudo chown -R 1035:100 /volume1/docker/paperless-rules
-   ```
-4. **Add the service** to your existing paperless `docker-compose.yml` — see [`docker-compose.example.yml`](./docker-compose.example.yml). For Synology with a DSM reverse proxy:
+1. **Mint a paperless API token** in paperless: *Settings → API auth tokens → Create*. Save it as `PAPERLESS_RULES_TOKEN` in the same `.env` your paperless compose reads.
+2. **Add the service** to your `docker-compose.yml` — see [`docker-compose.example.yml`](./docker-compose.example.yml) for the full annotated version:
    ```yaml
    paperless-rules:
-     container_name: paperless-rules
      image: ghcr.io/mueslipolo/paperless-rules:latest
      restart: unless-stopped
-     user: "1035:100"
      networks:
-       - paperless_net                                 # same network as paperless
+       - paperless_net                          # same network as your paperless service
      depends_on:
        - paperless
      ports:
-       - "127.0.0.1:8765:8765"                         # DSM reverse proxy fronts it
+       - "127.0.0.1:8765:8765"                  # localhost-only; expose via your reverse proxy
      volumes:
-       - /volume1/docker/paperless-rules/rules:/data/rules
-       - /volume1/docker/paperless-rules/state:/data/state
+       - ./paperless-rules/rules:/data/rules
+       - ./paperless-rules/state:/data/state
      environment:
-       PAPERLESS_URL: http://paperless:8000            # docker-network DNS
+       PAPERLESS_URL: http://paperless:8000     # docker-network DNS for your paperless service
        PAPERLESS_TOKEN: ${PAPERLESS_RULES_TOKEN}
-       RUNTIME_MODE: disabled                          # see "Modes" below
+       RUNTIME_MODE: disabled                   # see "Modes" below
        EDITOR_AUTH_REQUIRED: "true"
-       TZ: Europe/Berlin
    ```
-5. **Start it**: Container Manager → Project → Update — or via SSH:
+   Adjust `PAPERLESS_URL` to your paperless service's hostname:port within the docker network, and the volume paths to wherever your stack stores persistent data.
+3. **Bring it up**:
    ```bash
-   sudo docker compose up -d paperless-rules
+   docker compose up -d paperless-rules
    ```
+4. **Open the editor** at `http://<host>:8765` (or behind your reverse proxy — see below). The login modal asks for the same paperless API token from step 1.
 
 ### Updating
 
 ```bash
-sudo docker compose pull paperless-rules && sudo docker compose up -d paperless-rules
+docker compose pull paperless-rules && docker compose up -d paperless-rules
 ```
-Or DSM Container Manager → Project → **Update**. Releases are published on `vX.Y.Z` git tags; you can pin to a specific tag (`ghcr.io/mueslipolo/paperless-rules:0.1.0`) instead of `latest`.
 
-### Generic Docker Compose
+Releases are tagged `vX.Y.Z`; pin a specific tag (`ghcr.io/mueslipolo/paperless-rules:0.1.0`) instead of `latest` to control rollouts.
 
-See [`docker-compose.example.yml`](./docker-compose.example.yml) — the same shape, with localhost-only port binding and standard `./` paths.
+### HTTPS / reverse proxy
+
+Any reverse proxy that already fronts paperless will do (Caddy, Traefik, nginx, …). Two requirements:
+
+- proxy `https://rules.example.com` → the editor on `:8765`
+- forward the `Authorization` header so the editor sees your paperless token
+
+If the proxy reaches the container over the docker network, drop the host port mapping from the compose entirely. Otherwise keep `127.0.0.1:8765:8765` so only the proxy can reach it.
 
 ### Building from source
 
@@ -82,20 +81,7 @@ cd paperless-rules
 docker build -t paperless-rules:local .
 ```
 
-The image is single-stage Alpine, runs as `paperless` (uid 1000), exposes `/api/health` for healthchecks.
-
----
-
-## Behind DSM reverse proxy with HTTPS (recommended for any non-LAN access)
-
-1. Bind the container to localhost only (`127.0.0.1:8765:8765` as in the snippet above).
-2. *Control Panel → Login Portal → Advanced → Reverse Proxy → Create*:
-   - Source: HTTPS · `rules.your-syno.lan` · 443
-   - Destination: HTTP · `localhost` · 8765
-   - Custom header → WebSocket: enabled
-   - HSTS, HTTP/2: enabled
-3. Issue a TLS cert for `rules.your-syno.lan` (*Control Panel → Security → Certificate*).
-4. Visit `https://rules.your-syno.lan` — paste your paperless API token in the login modal, you're in.
+Single-stage Alpine, runs as `paperless` (uid 1000), exposes `/api/health` for healthchecks.
 
 ---
 
@@ -110,8 +96,8 @@ The editor uses **paperless's own API token as the login credential** — no sep
 
 Two presets:
 
-- **`.env.home.example`** — Synology / production, auth on, write-enabled.
-- **`.env.dev.example`** — laptop, auth off, read-only, server-side `PAPERLESS_TOKEN` from env.
+- **`.env.home.example`** — production: auth on, write-enabled.
+- **`.env.dev.example`** — laptop: auth off, read-only, server-side `PAPERLESS_TOKEN` from env.
 
 ---
 

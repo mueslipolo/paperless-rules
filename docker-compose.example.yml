@@ -41,7 +41,7 @@ services:
     depends_on:
       - paperless
     restart: unless-stopped
-    # Limits keep the container honest on a Synology / small NAS.
+    # Modest limits — paperless-rules is a tiny editor + a sleepy runtime.
     deploy:
       resources:
         limits:

@@ -1,14 +1,12 @@
 name: publish
 
 # Build + push the container image to ghcr.io on every semver tag (v0.x.y).
-# Synology / production NAS pulls from ghcr.io, no on-NAS rebuild ever.
 #
-# Release flow:
-#   git tag v0.1.0
-#   git push origin v0.1.0     # triggers this workflow
+# Release:
+#   git tag v0.1.0 && git push origin v0.1.0
 #
-# On the NAS:
-#   sudo docker compose pull paperless-rules && sudo docker compose up -d paperless-rules
+# Deploy:
+#   docker compose pull paperless-rules && docker compose up -d paperless-rules
 
 on:
   push:
@@ -54,7 +52,7 @@ jobs:
         with:
           context: .
           push: true
-          platforms: linux/amd64,linux/arm64    # Synology NAS = arm64
+          platforms: linux/amd64,linux/arm64
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
