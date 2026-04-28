@@ -127,10 +127,8 @@ async def test_internal_field_skipped_from_custom_fields():
     rule["fields"]["raw_id"] = {"regex": r"client\s+(\d+)", "internal": True}
     client = WriteRecordingPaperless({42: _doc()})
     await apply_rules_to_document(client, 42, [("01.yml", rule)])
-    cf_names_keys = [c["field"] for c in client.patches[0][1]["custom_fields"]]
-    # The custom_fields list keys by ID. Look at created custom_fields by name:
     created_names = {cf["name"] for cf in client.custom_fields.values()}
-    assert "raw_id" not in created_names  # internal → not published
+    assert "raw_id" not in created_names
 
 
 async def test_monetary_uses_rule_currency():

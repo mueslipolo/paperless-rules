@@ -44,8 +44,11 @@ class FakePaperless:
                 "data_type": payload.get("data_type")}
     async def list_custom_fields(self): return []
     async def patch_document(self, doc_id, payload):
-        self.patches.append((doc_id, payload)); return {"id": doc_id}
-    async def aclose(self): pass
+        self.patches.append((doc_id, payload))
+        return {"id": doc_id}
+
+    async def aclose(self):
+        pass
 
 
 @pytest.fixture

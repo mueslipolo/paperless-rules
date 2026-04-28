@@ -94,10 +94,7 @@ async def run(config: Config | None = None, *, max_iterations: int | None = None
     async with PaperlessClient(cfg.paperless_url, cfg.paperless_token, verify=cfg.httpx_verify) as client:
         cache = ResolutionCache()
         while not stop.is_set():
-            # Hot-reload rules when any *.yml mtime changes — lets the editor
-            # publish a rule change (save in browser, toggle enabled: false)
-            # without restarting the container. mtime check is cheap (one
-            # stat per rule); we only re-parse YAML when the signature shifts.
+            # Hot-reload rules when any *.yml mtime changes.
             current_sig = rules_dir_signature(cfg.rules_dir)
             if current_sig != rules_sig:
                 rules = load_rules(cfg.rules_dir)
@@ -109,14 +106,14 @@ async def run(config: Config | None = None, *, max_iterations: int | None = None
                 )
                 if n:
                     log.info("poller: processed %d doc(s)", n)
-            except Exception:  # noqa: BLE001
+            except Exception:
                 log.exception("poller iteration failed; will retry")
             iterations += 1
             if max_iterations is not None and iterations >= max_iterations:
                 break
             try:
                 await asyncio.wait_for(stop.wait(), timeout=cfg.poll_interval_seconds)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 pass
     return 0
 

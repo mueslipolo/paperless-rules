@@ -1,12 +1,4 @@
-"""Editor auth gate — single sign-on via paperless API tokens.
-
-The editor doesn't manage its own users. Instead it accepts the same
-``Authorization: Token <user-token>`` header paperless does, verifies the
-token by calling paperless's ``/api/users/me/`` once, and TTL-caches the
-result so subsequent requests don't hammer paperless.
-
-Revoking the token in paperless logs the user out within ``_TTL_SECONDS``.
-"""
+"""Editor auth gate — paperless API token verification with TTL cache."""
 
 from __future__ import annotations
 
@@ -17,8 +9,6 @@ from fastapi import HTTPException, Request
 
 from paperless_rules.paperless_client import PaperlessClient, PaperlessError
 
-# token → (user_dict, expires_at_monotonic). In-process only; cleared at
-# restart, which is fine — users just paste the token again.
 _CACHE: dict[str, tuple[dict[str, Any], float]] = {}
 _TTL_SECONDS = 60.0
 
@@ -35,15 +25,8 @@ async def _verify(token: str, client: PaperlessClient) -> dict[str, Any] | None:
 
 
 def make_auth_dep(state: Any, *, required: bool):
-    """Build a FastAPI dependency that gates a route behind a valid paperless token.
-
-    `state` is the editor's mutable container with a `paperless: PaperlessClient`
-    attribute (so the dep picks up the client even if it's initialised in
-    `lifespan`, after `make_auth_dep` is first called).
-
-    When `required` is False, the dep is a no-op — useful for trusted-LAN
-    deployments and the test suite.
-    """
+    """FastAPI dep that requires a valid paperless token. ``required=False``
+    makes it a no-op (trusted LAN, tests)."""
     async def dep(request: Request) -> dict[str, Any] | None:
         if not required:
             return None

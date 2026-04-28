@@ -8,10 +8,7 @@
   :root {
     --bg: #f8f6f1; --bg-alt: #f0ece4; --bg-card: #fdfbf6;
     --ink: #1a1a1a; --ink-soft: #5c5c5c;
-    /* --line: decoration only (dividers, dashed separators, status pill borders).
-       --line-input: editable surfaces only (input/select/textarea borders, the
-       segmented kind-toggle wrapper, collapsed-row name preview). The visible
-       contrast between the two tells the user where to type. */
+    /* --line: decoration. --line-input: every editable surface. */
     --line: #d8d3c7;
     --line-input: #b9b1a0;
     --accent: #2d6a8a; --green: #2d8a4f; --amber: #b07b1e; --red: #b53939; --grey: #888;
@@ -369,7 +366,7 @@
     background: var(--bg-card); border: 1px solid var(--line);
     border-radius: 5px; padding: 14px 16px; font-size: 12px;
     margin-bottom: 22px;
-    height: var(--ocr-h, 220px); min-height: 80px; max-height: none;
+    height: var(--ocr-h, 220px); min-height: 80px;
     overflow-y: auto; white-space: pre-wrap; line-height: 1.55;
     position: relative;
   }
@@ -466,8 +463,7 @@
   .regex-input.err   { border-left: 3px solid var(--red); }
 
   .preview-line {
-    /* Read-only echo of the input above — left-rule "quote" form so it
-       doesn't look like another input box. */
+    /* read-only echo of the input above (left-rule quote, not a box). */
     margin-top: 6px; padding: 4px 10px;
     border-left: 2px solid var(--line);
     font-size: 11px; color: var(--ink-soft);
@@ -516,9 +512,8 @@
   .field-row:last-child { border-bottom: none; }
   .field-row.expanded { background: rgba(45,106,138,0.04); }
 
-  /* collapsed summary line — designed so the user can SEE this line is
-     editable. The .fname slot is bordered like the underlying input; the
-     ✎ glyph next to the chevron makes the affordance unmistakable. */
+  /* collapsed summary; .fname is bordered like the underlying input,
+     ✎ glyph signals editability. */
   .field-summary {
     display: grid;
     grid-template-columns: 14px 14px 1fr 48px 100px 1fr 22px;
@@ -542,9 +537,9 @@
   .field-summary:hover .edit-glyph { opacity: 1; color: var(--accent); }
   .field-row.expanded .edit-glyph { opacity: 0; }     /* "now editing" → glyph fades */
   .field-summary .fname {
+    /* mini preview of the underlying input. */
     font-weight: 600; color: var(--ink);
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-    /* mini "preview of the input" so the user reads the row as editable */
     border: 1px solid var(--line-input);
     background: var(--bg-card);
     border-radius: 3px;
@@ -552,16 +547,13 @@
     font-family: var(--mono);
   }
   .field-row.expanded .field-summary .fname {
-    /* expanded row already has the real name input below; lighten the
-       summary version so it doesn't look duplicated. */
+    /* expanded row has the real input below; flatten the preview. */
     border-color: transparent; background: transparent; padding: 3px 0;
   }
   .field-summary .fname.reserved { color: var(--accent); }
   .field-summary .fname.unset    { color: var(--ink-soft); font-style: italic; }
   .field-summary .kchip {
-    /* role: kind label (re/val/tpl/adv). Reads as plain mono text in the
-       summary so it can't be confused with a clickable chip. The toggle
-     in the expanded panel below is where the user actually picks. */
+    /* read-only kind label; the editable toggle lives in the expanded row. */
     font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px;
     color: var(--ink-soft);
     padding: 0; text-align: left;
@@ -676,8 +668,7 @@
   .pf-badge.missing  { color: var(--ink-soft); background: rgba(0,0,0,0.05); }
   .pf-badge.offline  { color: var(--ink-soft); background: transparent; }
 
-  /* Pill = role/category label. Border because in some contexts the user
-     can interact with it (e.g. .req-tag toggles required). */
+  /* role / category label; bordered (sometimes interactive, e.g. .req-tag). */
   .pill {
     display: inline-block; padding: 1px 6px; border-radius: 9px;
     font-size: 9px; text-transform: uppercase; letter-spacing: 0.6px;
@@ -1376,9 +1367,8 @@ const state = {
   dirty: false,
   rule: emptyRule(),
 
-  // The corpus = whatever is in state.docs. When a `match:` regex is set,
-  // these come from /api/discover (paperless docs whose content matches).
-  // When `match:` is empty, they come from /api/documents (search results).
+  // state.docs IS the test corpus (from /api/discover when `match:` is
+  // set, from /api/documents otherwise).
   docs: [],                   // [{id, title, snippet?, match_start?, match_end?}]
   docsSource: "search",       // "search" | "discover"
   docsScanned: 0,
@@ -1417,10 +1407,8 @@ function emptyRule() {
 
 // ── api ─────────────────────────────────────────────────────────────
 
-// User's paperless token, paste-once via the login modal, kept in
-// localStorage. Added to every /api/* call as `Authorization: Token <…>`,
-// which matches paperless's own scheme — the editor's auth dep verifies it
-// against paperless's /api/users/me/.
+// paperless API token; pasted via the login modal, kept in localStorage,
+// sent as Authorization: Token <…> on every /api/* call.
 const TOKEN_KEY = "paperless-rules:user-token";
 let userToken = "";
 try { userToken = localStorage.getItem(TOKEN_KEY) || ""; } catch {}
@@ -1653,11 +1641,8 @@ function parseOptionsBlock(body, r) {
 
 function serializeRule(r) {
   const out = [];
-  // `name:` first so the file's intent is obvious when read raw.
   if (r.name) out.push(`name: ${yqStr(r.name)}`);
-  // `enabled: true` is the default and we don't emit it; only write the
-  // line when the rule is explicitly disabled (so a clean rule's YAML
-  // doesn't grow a noisy line).
+  // emit `enabled: false` only when explicitly disabled; default is on
   if (r.enabled === false) out.push(`enabled: false`);
   out.push(`match: ${yqStr(r.match || "")}`);
   if (r.exclude) out.push(`exclude: ${yqStr(r.exclude)}`);
@@ -1778,9 +1763,6 @@ function setSaveStatus(cls, text) {
 }
 
 function setupRuleListDragReorder() {
-  // Native HTML5 DnD on the rule-list. Each row is draggable; we track
-  // the dragging row, decorate the hover target with drop-above/below,
-  // and on drop reorder state.rules + POST /api/rules/reorder.
   const list = $("#rule-list");
   let draggingFilename = null;
 
@@ -1910,9 +1892,7 @@ function renderStepper() {
   pane.classList.toggle("step-1", state.step === 1);
   pane.classList.toggle("step-2", state.step === 2);
 
-  // step1 is "complete" when corpus has at least one matching doc
   const step1Done = state.docsSource === "discover" && state.docs.length > 0;
-  // step2 is "complete" when at least one field is defined
   const step2Done = state.rule.fields.length > 0;
 
   document.querySelectorAll(".stepper .step").forEach(el => {
@@ -1988,24 +1968,6 @@ function renderOcrView() {
   body.innerHTML = renderTextWithMatches(state.activeDocText, matches, state.showWhitespace);
 }
 
-function corpusStatsForPattern(pat) {
-  // Best-effort client-side: count docs in corpus where the pattern matches
-  // (the active doc text we have; for others we don't have full text on the
-  // client unless they were loaded — fall back to active-doc-only stats).
-  if (!pat) return { hits: 0, total: 0, error: false, knownDocs: 0 };
-  const re = safeRe(pat, "gms");
-  if (!re) return { error: true };
-  // We only have full text for the active doc; use server-side extraction
-  // for corpus-level stats instead.
-  const ext = state.extraction?.results || [];
-  let hits = 0;
-  for (const r of ext) {
-    if (r.extraction?.matched != null) {
-      // For match: it tells us whether this rule matched (which is the match regex)
-    }
-  }
-  return { hits, total: ext.length, knownDocs: ext.length };
-}
 
 function renderMatchCard() {
   const input = $("#match-input");
@@ -2029,8 +1991,7 @@ function renderMatchCard() {
     stats.innerHTML = `<span class="muted" style="color:var(--ink-soft)">type to discover…</span>`;
   }
 
-  // Multi-doc preview: render snippets from up to 5 discovered docs.
-  // Each line shows '#id title · …snippet…' with the matched substring highlighted.
+  // multi-doc preview: snippets from up to 5 discovered docs
   const previewEl = $("#match-preview");
   if (!pat) {
     previewEl.innerHTML = `<span class="preview-tag">type a pattern to discover docs</span>`;
@@ -2887,19 +2848,16 @@ function renderBackfillResults(r, wasDryRun) {
     rowsEl.appendChild(row);
   }
 
-  // Decide next action — if it was a dry run, offer "Apply for real"
-  // (red, with a brief delay so the user has to read the summary).
+  // After a clean dry-run, swap the primary button to a delayed "Apply for real".
   const goBtn = $("#btn-backfill-go");
   if (wasDryRun && r.matched > 0 && r.errors === 0) {
     goBtn.textContent = `Apply for real (${r.matched} doc${r.matched === 1 ? "" : "s"})`;
     goBtn.className = "danger";
     goBtn.disabled = true;
     setTimeout(() => { goBtn.disabled = false; }, 2500);
-    // make the config view visible again so the user can re-toggle dry-run
     $("#bf-dry-run").checked = false;
     $("#backfill-config").hidden = false;
   } else {
-    // Hide config — user got their result.
     $("#backfill-config").hidden = true;
   }
 }
@@ -3082,9 +3040,7 @@ async function loadDoc(id) {
   state.activeDocId = id;
   state.activeDocText = "";
   state.activeDocTitle = "loading…";
-  // Wire the PDF iframe lazily — only loads when the user flips to PDF mode
-  // (and does so against our backend proxy, not paperless directly, so the
-  // API token never touches the browser).
+  // server-proxied PDF (token stays server-side)
   $("#pdf-frame").src = `/api/documents/${id}/preview`;
   renderOcrView();
   try {
@@ -3440,9 +3396,7 @@ function wire() {
 
   const debouncedDiscover = debounce(() => loadDocs(), 250);
   function onMatchTouch() {
-    // Synchronous visual feedback: clear doc list + show "scanning" the
-    // instant the user types, so the pane visibly reacts even before the
-    // debounced fetch fires.
+    // sync feedback while the debounced fetch waits
     if (state.rule.match) {
       state.docsSource = "discover";
       $("#doc-list").innerHTML = '<div class="empty">scanning paperless…</div>';
@@ -3471,9 +3425,7 @@ function wire() {
     rows[rows.length - 1]?.querySelector("input.name-input")?.focus();
   });
 
-  // Renaming: edit the display name → server slugifies + renames the file
-  // on the rules dir, returns the new filename, SPA updates references.
-  // Debounced so typing doesn't fire a rename per keystroke.
+  // editing the display name → server renames the file (debounced).
   const debouncedRename = debounce(async () => {
     if (!state.currentFilename) return;
     const wanted = state.currentName.trim();
@@ -3485,18 +3437,15 @@ function wire() {
         try { localStorage.setItem("paperless-rules:active", r.filename); } catch {}
         await loadRules();
         renderTopbar();
-        // Patch the parsed rule's name so serialise round-trips
         state.rule.name = wanted;
       }
     } catch (e) {
-      // Surface but don't strand — name field stays as-typed; the rename
-      // will retry on the next pause in typing.
       setSaveStatus("error", `rename failed: ${e.message.slice(0, 60)}`);
     }
   }, 800);
   $("#rule-name-input").addEventListener("input", e => {
     state.currentName = e.target.value;
-    state.rule.name = state.currentName;     // round-trip into the YAML
+    state.rule.name = state.currentName;
     markDirty();
     renderTopbar();
     debouncedRename();
@@ -3508,9 +3457,7 @@ function wire() {
     markDirty();
     renderTopbar();
     scheduleSerialize();
-    // Save immediately — the user expects toggling enabled to flip the rule
-    // live; the runtime mtime watcher picks it up on the next poll.
-    autoSave();
+    autoSave();   // flush so the runtime sees the flip on the next mtime tick
   });
 
   $("#btn-yaml-toggle").addEventListener("click", () => {

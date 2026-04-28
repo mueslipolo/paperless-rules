@@ -22,9 +22,9 @@ from paperless_rules.rules_io import (
     auto_filename,
     delete_rule,
     list_rules,
+    read_rule,
     rename_rule,
     reorder_rules,
-    read_rule,
     write_rule,
 )
 from paperless_rules.runtime.apply import ResolutionCache, apply_rules_to_document
@@ -35,8 +35,6 @@ _AUTO_PREFIX_RE = _re.compile(r"^(\d{2})_")
 
 
 def _extract_prefix(filename: str) -> int | None:
-    """Pull the NN_ prefix off an auto-generated filename so the rename
-    helper preserves the rule's evaluation order."""
     m = _AUTO_PREFIX_RE.match(filename)
     return int(m.group(1)) if m else None
 
@@ -61,37 +59,22 @@ class RegexTestRequest(BaseModel):
 
 
 class RenameRequest(BaseModel):
-    """Rename a rule from a free-text display name. The server slugifies
-    the name, preserves the existing NN_ prefix, and renames the file."""
     name: str
 
 
 class ReorderRequest(BaseModel):
-    """Drag-to-reorder payload. ``filenames`` is the desired order; the
-    server renumbers the NN_ prefixes and renames files accordingly."""
     filenames: list[str]
 
 
 class NewRuleRequest(BaseModel):
-    """Create an empty rule from a display name. Server picks the next
-    NN_ prefix and slugifies the name into the filename body."""
     name: str
 
 
 class PostConsumeRequest(BaseModel):
-    """Triggered by paperless's PAPERLESS_POST_CONSUME_SCRIPT (via the helper
-    shell wrapper in scripts/post_consume_via_rules.sh) for each newly
-    consumed doc."""
     doc_id: int
 
 
 class ApplyRequest(BaseModel):
-    """Backfill / apply a single rule to a doc set.
-
-    - `doc_ids` (subset, e.g. the editor's discovered corpus) takes priority.
-    - Otherwise, iterate paperless docs filtered by `filter` (paperless full-
-      text query). Defaults are safe: dry_run=True, capped scan.
-    """
     doc_ids: list[int] | None = None
     filter: str | None = None
     dry_run: bool = True
@@ -100,33 +83,22 @@ class ApplyRequest(BaseModel):
 
 
 class DiscoverRequest(BaseModel):
-    """Find paperless docs whose content matches a regex.
-
-    Used by the editor to auto-populate the test corpus from the rule's
-    `match:` pattern (and optional `exclude:`). Caller can pre-filter via
-    paperless full-text search by setting `search`; otherwise we derive
-    a literal-token prefilter from the regex so paperless does the heavy
-    narrowing before we run the regex.
-    """
     match: str
     exclude: str | None = None
     search: str | None = None
-    scan_limit: int = 1000      # max docs to fetch+regex-test
-    max_matches: int = 100      # max matching docs to return
+    scan_limit: int = 1000
+    max_matches: int = 100
 
 
 def _derive_prefilter(pattern: str) -> str:
-    """Extract literal alphanumeric tokens (≥3 chars) from a regex so they
-    can be used as a paperless full-text query. Conservative: returns ""
-    when the regex contains alternation (|) since AND-joining tokens from
-    different branches would over-narrow.
+    """Literal alphanumeric tokens from a regex, joined as a paperless
+    full-text query. Returns "" when the regex contains alternation since
+    AND-joining tokens from different branches would over-narrow.
     """
     if "|" in pattern:
         return ""
-    # Drop escapes (\d, \s, \., …) and char classes ([abc])
     simplified = _re.sub(r"\\.", " ", pattern)
     simplified = _re.sub(r"\[[^\]]*\]", " ", simplified)
-    # Drop group prefixes like (?:, (?=, (?!, (?P<name>
     simplified = _re.sub(r"\(\?[a-zA-Z!=:<][^)]*\)", " ", simplified)
     simplified = _re.sub(r"[(){}*+?$^]", " ", simplified)
     seen: set[str] = set()
@@ -144,7 +116,7 @@ def _derive_prefilter(pattern: str) -> str:
 
 
 def _build_re_flags(flags: str) -> int:
-    out = _re.MULTILINE  # rule semantics require MULTILINE
+    out = _re.MULTILINE
     if "i" in flags:
         out |= _re.IGNORECASE
     if "s" in flags:
@@ -194,7 +166,7 @@ def create_app(
         state.paperless = paperless_client
 
     @asynccontextmanager
-    async def lifespan(app: FastAPI):  # noqa: ARG001
+    async def lifespan(app: FastAPI):
         if state.paperless is None and cfg.paperless_url and cfg.paperless_token:
             state.paperless = PaperlessClient(cfg.paperless_url, cfg.paperless_token, verify=cfg.httpx_verify)
             state.owns_client = True
@@ -216,11 +188,6 @@ def create_app(
         return state.paperless
 
     def require_writable() -> None:
-        """Defense-in-depth gate for routes that mutate paperless or rules
-        on disk. EDITOR_READONLY=true makes the editor a strict read-only
-        viewer — everything that could PATCH paperless or write a YAML file
-        returns 405. Used on /api/rules POST/DELETE, /api/post-consume, and
-        non-dry-run /api/rules/{f}/apply."""
         if cfg.editor_readonly:
             raise HTTPException(405, "editor is in read-only mode (EDITOR_READONLY=true)")
 
@@ -266,8 +233,6 @@ def create_app(
 
     @app.get("/api/documents/{doc_id}/preview", dependencies=auth)
     async def get_document_preview(doc_id: int) -> Response:
-        """Proxy paperless's PDF preview so the editor can embed it without
-        exposing the API token to the browser."""
         try:
             data, content_type = await require_paperless().get_preview(doc_id)
         except PaperlessError as e:
@@ -276,9 +241,6 @@ def create_app(
 
     @app.get("/api/custom_fields", dependencies=auth)
     async def list_custom_fields_endpoint() -> dict[str, Any]:
-        """Return paperless custom fields so the editor can validate that
-        rule field names + types align with the live schema.
-        """
         try:
             fields = await require_paperless().list_custom_fields()
         except PaperlessError as e:
@@ -312,8 +274,7 @@ def create_app(
 
     @app.post("/api/rules/{filename}/rename", dependencies=auth)
     def rename_rule_endpoint(filename: str, req: RenameRequest) -> dict[str, Any]:
-        """Rename a rule from a new display name. Preserves the NN_ prefix
-        so evaluation order is unchanged."""
+        """Rename a rule via display name; preserves the NN_ prefix."""
         require_writable()
         try:
             new_filename = auto_filename(req.name, cfg.rules_dir,
@@ -321,16 +282,14 @@ def create_app(
             new_filename = rename_rule(cfg.rules_dir, filename, new_filename)
         except RulesIOError as e:
             raise HTTPException(400, str(e)) from e
-        # Rewrite the rule's `name:` field too so the slug + display label
-        # stay in sync after the file moves.
+        # Best-effort rewrite of the in-file `name:` so slug and label stay aligned.
         try:
-            yaml_text = read_rule(cfg.rules_dir, new_filename)
-            data = yaml.safe_load(yaml_text) or {}
+            data = yaml.safe_load(read_rule(cfg.rules_dir, new_filename)) or {}
             if isinstance(data, dict):
                 data = {"name": req.name, **{k: v for k, v in data.items() if k != "name"}}
                 write_rule(cfg.rules_dir, new_filename, yaml.safe_dump(data, sort_keys=False, allow_unicode=True))
         except (RulesIOError, yaml.YAMLError):
-            pass  # filename change still applied; YAML refresh is best-effort
+            pass
         return {"ok": True, "filename": new_filename}
 
     @app.post("/api/rules/reorder", dependencies=auth)
@@ -344,8 +303,7 @@ def create_app(
 
     @app.post("/api/rules/new", dependencies=auth)
     def new_rule_endpoint(req: NewRuleRequest) -> dict[str, Any]:
-        """Create a blank rule with a display name. Server picks the
-        filename. SPA hits this when the user clicks "+ new rule"."""
+        """Create a blank rule from a display name; server picks the filename."""
         require_writable()
         filename = auto_filename(req.name, cfg.rules_dir)
         body = yaml.safe_dump(
@@ -387,8 +345,6 @@ def create_app(
             results.append({
                 "doc_id": doc_id,
                 "title": doc.get("title", ""),
-                # /api/test is the editor's "show me what would happen" path,
-                # so always request the trace — the SPA renders it inline.
                 "extraction": extract_with_rule(
                     doc.get("content", "") or "", rule, trace=True,
                 ),
@@ -402,8 +358,8 @@ def create_app(
         try:
             compiled = _re.compile(req.pattern, _build_re_flags(req.flags or ""))
         except _re.error as e:
-            # editor calls this on every keystroke — return 200 with ok=False
-            # so a half-typed pattern shows an inline error, not a crash
+            # Called on every keystroke — return 200 with ok=False so a
+            # half-typed pattern shows an inline error, not a crash.
             return {"ok": False, "error": str(e), "results": []}
 
         results: list[dict[str, Any]] = []
@@ -484,13 +440,7 @@ def create_app(
 
     @app.post("/api/post-consume", dependencies=auth)
     async def post_consume_endpoint(req: PostConsumeRequest) -> dict[str, Any]:
-        """Apply rules to a single doc paperless just consumed.
-
-        Mirrors `runtime/post_consume.py::run()` but skips the per-call
-        Config rebuild and reuses the editor's long-lived PaperlessClient.
-        Called by the paperless container's PAPERLESS_POST_CONSUME_SCRIPT
-        via curl (see scripts/post_consume_via_rules.sh).
-        """
+        """Apply rules to one doc; called by paperless's post-consume hook."""
         require_writable()
         rules = load_rules(cfg.rules_dir)
         if not rules:
@@ -509,30 +459,14 @@ def create_app(
 
     @app.post("/api/rules/{filename}/apply", dependencies=auth)
     async def apply_rule_endpoint(filename: str, req: ApplyRequest) -> dict[str, Any]:
-        """Apply ONE rule to a doc set — the editor's "Backfill" button.
-
-        Doc set selection:
-          - if `doc_ids` is given: use exactly those (the editor's currently
-            discovered corpus).
-          - else: iterate paperless docs filtered by `filter` (or no filter
-            → first `max_docs` docs).
-
-        Defaults are safe: `dry_run=True` returns the would-be payloads
-        without PATCHing paperless. `max_docs` caps the sweep at 500 per
-        request; the SPA re-clicks for the next batch.
-        """
-        # Read-only mode is allowed to dry-run (the whole point — preview
-        # what a rule would do) but never to actually PATCH.
+        """Apply one rule to a doc set (corpus or paperless filter)."""
+        # Dry-run is always allowed; only commits respect EDITOR_READONLY.
         if cfg.editor_readonly and not req.dry_run:
             raise HTTPException(405, "editor is in read-only mode (EDITOR_READONLY=true)")
-        # Load just this rule and pass as a single-element list — matches
-        # the shape apply_rules_to_document expects.
         try:
-            yaml_text = read_rule(cfg.rules_dir, filename)
+            rule = yaml.safe_load(read_rule(cfg.rules_dir, filename))
         except RulesIOError as e:
             raise HTTPException(404, str(e)) from e
-        try:
-            rule = yaml.safe_load(yaml_text)
         except yaml.YAMLError as e:
             raise HTTPException(400, f"invalid YAML: {e}") from e
         if not isinstance(rule, dict):
@@ -545,7 +479,6 @@ def create_app(
         scanned = 0
         truncated = False
 
-        # Resolve doc set
         if req.doc_ids:
             doc_ids = list(req.doc_ids)[: req.max_docs]
             truncated = len(req.doc_ids) > req.max_docs
@@ -560,8 +493,7 @@ def create_app(
             except PaperlessError as e:
                 raise HTTPException(502, str(e)) from e
 
-        # Apply per doc — non-fatal on per-doc errors so one bad regex
-        # doesn't strand the whole sweep.
+        # Per-doc failures are non-fatal — one bad regex shouldn't strand the sweep.
         for doc_id in doc_ids:
             scanned += 1
             try:
@@ -571,7 +503,7 @@ def create_app(
                     dry_run=req.dry_run,
                     cache=cache,
                 )
-            except Exception as e:  # noqa: BLE001 — surface, don't strand
+            except Exception as e:
                 results.append({"doc_id": doc_id, "error": f"apply failed: {e}"})
                 continue
             results.append({

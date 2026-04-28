@@ -1,15 +1,5 @@
-"""Async paperless-ngx REST API wrapper.
-
-Thin httpx-based client. The editor uses the read methods (list, get, search);
-the runtime uses these plus the resolve/create/PATCH methods for writing
-metadata back. PaperlessError is raised for any unexpected non-200 response
-or transport error so callers can translate cleanly into HTTP responses.
-
-We pin the Accept header to a stable shape; paperless-ngx versions its API
-with the `application/json; version=N` content type. version=2 is the
-current stable contract used by paperless-rules — newer versions remain
-backward compatible with this header.
-"""
+"""Async paperless-ngx REST API wrapper. PaperlessError on any non-2xx or
+transport error. Accept header pinned to ``application/json; version=2``."""
 
 from __future__ import annotations
 
@@ -20,14 +10,11 @@ import httpx
 
 
 class PaperlessError(Exception):
-    """Raised when a paperless API call fails or returns unexpected data."""
+    pass
 
 
 class PaperlessClient:
-    """Async paperless-ngx client. One instance per app, reused across calls.
-
-    Pass `transport=httpx.MockTransport(...)` in tests to avoid real network.
-    """
+    """Async paperless-ngx client. One instance per app."""
 
     def __init__(
         self,
@@ -40,9 +27,7 @@ class PaperlessClient:
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.token = token
-        # `verify` accepts True / False / a CA-bundle path. Passed through
-        # unchanged to httpx so users on self-signed LAN paperless can opt
-        # into either skipping verification or pinning to a local CA.
+        # ``verify`` accepts True / False / a CA-bundle path.
         kwargs: dict[str, Any] = {
             "base_url": self.base_url,
             "headers": {
@@ -65,10 +50,8 @@ class PaperlessClient:
     async def __aexit__(self, *exc_info: Any) -> None:
         await self.aclose()
 
-    # ── health ────────────────────────────────────────────────────────
-
     async def health(self) -> dict[str, Any]:
-        """Probe paperless connectivity. Never raises; returns status dict."""
+        """Connectivity probe; never raises."""
         try:
             r = await self._client.get("/api/")
         except httpx.HTTPError as e:
@@ -81,39 +64,21 @@ class PaperlessClient:
             "error": f"HTTP {r.status_code}",
         }
 
-    # ── documents ─────────────────────────────────────────────────────
-
     async def list_documents(
         self, query: str = "", page: int = 1, page_size: int = 25
     ) -> dict[str, Any]:
-        """Paginated document list. Returns the paperless response shape:
-        `{count, next, previous, results: [{id, title, content, created, ...}]}`.
-        """
         params: dict[str, Any] = {"page": page, "page_size": page_size}
         if query:
             params["query"] = query
         return await self._get_json("/api/documents/", params=params)
 
     async def get_document(self, doc_id: int) -> dict[str, Any]:
-        """Full document record including OCR `content` field."""
         return await self._get_json(f"/api/documents/{doc_id}/")
 
     async def verify_token(self, token: str) -> dict[str, Any] | None:
-        """Verify a paperless API token by hitting an authenticated endpoint.
-
-        Returns a sentinel ``{"ok": True}`` on success, ``None`` on 401/403.
-        Used by the editor's auth gate so a paperless token is the single
-        source of truth for "who can use the editor".
-
-        Probe is ``GET /api/documents/?page_size=1`` because:
-          - it exists across all paperless-ngx versions (``/api/users/me/``
-            isn't universal — some installations 404 on it);
-          - any user with API access can hit it;
-          - ``page_size=1`` keeps it cheap.
-
-        The per-call ``headers=`` overrides the client-level Authorization
-        (which uses the server's admin token) for this single request only.
-        """
+        """Verify a paperless token; returns ``{"ok": True}`` or None on 401/403.
+        Probe is ``GET /api/documents/?page_size=1`` (universal across
+        paperless-ngx versions; ``/api/users/me/`` isn't)."""
         headers = {
             "Authorization": f"Token {token}",
             "Accept": "application/json; version=2",
@@ -131,12 +96,7 @@ class PaperlessClient:
         return {"ok": True}
 
     async def get_preview(self, doc_id: int) -> tuple[bytes, str]:
-        """Fetch the document's PDF preview as raw bytes + content-type.
-
-        paperless exposes /api/documents/{id}/preview/ which serves the
-        renderable PDF (the original or a generated preview). Used by the
-        editor to embed the document in a viewer alongside the OCR text.
-        """
+        """Document PDF preview: raw bytes + content-type."""
         try:
             r = await self._client.get(f"/api/documents/{doc_id}/preview/")
         except httpx.HTTPError as e:
@@ -153,11 +113,7 @@ class PaperlessClient:
         page_size: int = 100,
         ordering: str = "-id",
     ) -> AsyncIterator[dict[str, Any]]:
-        """Async-iterate every document matching `query`, paginating until done.
-
-        `ordering=-id` makes us see newest first — convenient for a poller
-        that wants to short-circuit once it sees a doc it has already processed.
-        """
+        """Iterate every document matching ``query``. Newest first by default."""
         page = 1
         while True:
             params: dict[str, Any] = {
@@ -174,16 +130,11 @@ class PaperlessClient:
                 return
             page += 1
 
-    # ── metadata resolve / create (correspondents, types, tags, fields) ──
-
     async def find_one_by_name(
         self, kind: str, name: str
     ) -> dict[str, Any] | None:
-        """First record matching `name` exactly (case-insensitive). None if absent.
-
-        `kind` is the URL segment: `correspondents`, `document_types`, `tags`.
-        Paperless inherits Django filter semantics, so `name__iexact` works.
-        """
+        """First record matching ``name`` (case-insensitive). ``kind`` is
+        the URL segment: ``correspondents`` / ``document_types`` / ``tags``."""
         data = await self._get_json(
             f"/api/{kind}/", params={"name__iexact": name}
         )
@@ -191,7 +142,6 @@ class PaperlessClient:
         return results[0] if results else None
 
     async def create(self, kind: str, payload: dict[str, Any]) -> dict[str, Any]:
-        """POST to /api/<kind>/ and return the created record."""
         try:
             r = await self._client.post(f"/api/{kind}/", json=payload)
         except httpx.HTTPError as e:
@@ -208,16 +158,14 @@ class PaperlessClient:
             ) from e
 
     async def list_custom_fields(self) -> list[dict[str, Any]]:
-        """Custom fields don't take name__iexact in older paperless versions —
-        fetch the full list once and cache by name on the caller side.
-        """
+        """Whole custom_fields list. Caller is expected to cache by name —
+        older paperless versions don't accept ``name__iexact`` here."""
         data = await self._get_json("/api/custom_fields/", params={"page_size": 200})
         return list(data.get("results") or [])
 
     async def patch_document(
         self, doc_id: int, payload: dict[str, Any]
     ) -> dict[str, Any]:
-        """PATCH /api/documents/{id}/. Used to write back metadata."""
         try:
             r = await self._client.patch(f"/api/documents/{doc_id}/", json=payload)
         except httpx.HTTPError as e:
@@ -230,8 +178,6 @@ class PaperlessClient:
             return r.json()
         except ValueError as e:
             raise PaperlessError("paperless returned non-JSON for PATCH") from e
-
-    # ── internals ─────────────────────────────────────────────────────
 
     async def _get_json(
         self, path: str, *, params: dict[str, Any] | None = None

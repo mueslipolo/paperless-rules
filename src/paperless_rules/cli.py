@@ -153,7 +153,7 @@ async def _run_supervisor(cfg: Config) -> int:
     for t in pending:
         try:
             await t
-        except (asyncio.CancelledError, Exception):  # noqa: BLE001
+        except (asyncio.CancelledError, Exception):
             pass
     for t in done:
         exc = t.exception()

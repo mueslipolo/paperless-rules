@@ -31,29 +31,23 @@ import yaml
 Rule = dict[str, Any]
 ExtractionResult = dict[str, Any]
 
-# Per-rule diagnostic logger. Stays silent unless a rule opts in via
-# top-level `trace: true` (or a caller explicitly passes trace=True).
-# Configure once on app start: `logging.getLogger("paperless_rules.trace").setLevel(logging.INFO)`.
+# Per-rule diagnostic logger; stays silent unless a rule opts in.
 log_trace = logging.getLogger("paperless_rules.trace")
 
-# Reserved field names that map to paperless built-in metadata. Anything
-# else in `fields:` becomes a custom field of the same name.
+# Field names that route to paperless built-ins; anything else is a custom field.
 RESERVED_FIELDS = ("correspondent", "document_type", "tags", "title", "created")
 
-# Thousand-separator characters seen in real OCR output: ASCII apostrophe,
-# typographic apostrophe, modifier letter apostrophe, NBSP. Stripped before
-# float parsing.
+# Thousand-separator chars commonly emitted by OCR (ASCII apostrophe,
+# typographic apostrophe, modifier-letter apostrophe, NBSP).
 _NOISE_RE = re.compile(r"[\s'’ʼ ]")
 
 _BUILTIN_DATES = [
     "%d.%m.%Y", "%d.%m.%y", "%d-%m-%Y", "%d/%m/%Y",
     "%Y-%m-%d", "%Y/%m/%d",
     "%d %B %Y", "%d. %B %Y", "%d %b %Y",
-    # hyphen-separated abbreviated month: 13-Feb-2023, 23-Apr-2026
     "%d-%b-%Y", "%d-%B-%Y",
 ]
 
-# Match `{name}` placeholders in templates.
 _TEMPLATE_RE = re.compile(r"\{([a-zA-Z_][a-zA-Z0-9_]*)\}")
 
 
@@ -457,17 +451,12 @@ def extract_with_rule(text: str, rule: Rule, *, trace: bool | None = None) -> Ex
         'trace': [str]?,                 # only when trace=True (or rule has `trace: true`)
       }
 
-    Tracing: when enabled (explicit ``trace=True`` or top-level ``trace: true`` in
-    the rule), every match/exclude/field outcome is appended to a per-call trace
-    list AND emitted via the ``paperless_rules.trace`` logger. The editor's
-    /api/test passes ``trace=True`` unconditionally so the SPA can render the
-    trace inline; the runtime (poller, post-consume, backfill) honors only the
-    rule-level flag, so noisy diagnostics stay scoped to the rules you're
-    actively investigating.
+    When trace is on, per-step lines are also emitted via the
+    ``paperless_rules.trace`` logger.
     """
     if trace is None:
         trace = rule.get("trace") is True
-    trace_lines: list[str] = [] if trace else []  # placeholder; see uses below
+    trace_lines: list[str] = []
 
     rule_label = rule.get("name") or rule.get("match") or "<rule>"
     if trace:
@@ -475,7 +464,6 @@ def extract_with_rule(text: str, rule: Rule, *, trace: bool | None = None) -> Ex
 
     text = unicodedata.normalize("NFC", text or "")
 
-    # Match phase.
     match_spec = rule.get("match")
     match_patterns = (
         [match_spec] if isinstance(match_spec, str)
@@ -486,7 +474,7 @@ def extract_with_rule(text: str, rule: Rule, *, trace: bool | None = None) -> Ex
     missing = [p for p in match_patterns
                if not re.search(p, text, re.MULTILINE | re.DOTALL)]
 
-    # Exclude phase — empty patterns ignored (they'd match everything).
+    # Empty exclude patterns are ignored (they'd match everything).
     exclude_spec = rule.get("exclude")
     excludes = (
         [exclude_spec] if isinstance(exclude_spec, str)
@@ -515,30 +503,27 @@ def extract_with_rule(text: str, rule: Rule, *, trace: bool | None = None) -> Ex
         line = f"verdict: {verdict}"
         trace_lines.append(line); log_trace.info(line)
 
-    # Field evaluation — two passes.
     fields_spec = rule.get("fields") or {}
     options = rule.get("options") or {}
     formats = list(options.get("date_formats") or []) + _BUILTIN_DATES
     fields: dict[str, dict[str, Any]] = {}
 
-    # Pass 1: regex extractions and constant values.
+    # Pass 1: regex + value fields. Templates resolve in pass 2 because
+    # they may reference values produced here.
     for fname, fspec in fields_spec.items():
         kind = _spec_kind(fspec)
         if kind == "value":
             fields[fname] = _eval_value_field(fname, fspec, formats)
         elif kind == "regex":
             fields[fname] = _eval_regex_field(fname, fspec, text, formats)
-        # templates deferred to pass 2
 
-    # Pass 2: templates (lazy-resolves cross-template references). Use
-    # setdefault so a result the recursion already stored (e.g. a cycle
-    # error encountered while resolving a sibling) survives.
+    # Pass 2: templates. setdefault preserves errors recursion already
+    # stored (e.g. a cycle hit while resolving a sibling).
     for fname, fspec in fields_spec.items():
         if isinstance(fspec, dict) and "template" in fspec and fname not in fields:
             result = _resolve_template(fname, fields_spec, fields, formats, set())
             fields.setdefault(fname, result)
 
-    # `required` — list of field names whose `ok` gates the rule firing.
     required = rule.get("required") or []
     required_ok = matched and all(fields.get(f, {}).get("ok") for f in required)
 
@@ -571,14 +556,8 @@ def extract_with_rule(text: str, rule: Rule, *, trace: bool | None = None) -> Ex
 
 
 def load_rules(rules_dir: Path) -> list[tuple[str, Rule]]:
-    """Load all *.yml/*.yaml files from `rules_dir` as Rule mappings.
-
-    Rules with explicit top-level ``enabled: false`` are skipped — useful
-    for parking a half-baked rule without renaming it (which would break
-    the editor URL, churn git history, and lose the file's place in the
-    sort order). Default is enabled, so existing rules without the field
-    keep working unchanged.
-    """
+    """Load every *.yml/*.yaml in ``rules_dir``. Rules with
+    ``enabled: false`` are skipped."""
     rules_dir = Path(rules_dir)
     if not rules_dir.is_dir():
         return []
@@ -599,8 +578,7 @@ def load_rules(rules_dir: Path) -> list[tuple[str, Rule]]:
 
 
 def rules_dir_signature(rules_dir: Path) -> tuple[int, ...]:
-    """Cheap fingerprint of every YAML rule file's mtime, used by the poller
-    to detect rule changes without reloading on every iteration."""
+    """Mtime fingerprint over every YAML in ``rules_dir`` (poller hot-reload)."""
     rules_dir = Path(rules_dir)
     if not rules_dir.is_dir():
         return ()

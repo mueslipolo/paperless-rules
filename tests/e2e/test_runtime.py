@@ -15,7 +15,6 @@ from __future__ import annotations
 from pathlib import Path
 
 import httpx
-import pytest
 
 from paperless_rules.engine import load_rules
 from paperless_rules.runtime.apply import apply_rules_to_document

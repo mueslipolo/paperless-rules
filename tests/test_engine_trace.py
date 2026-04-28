@@ -8,10 +8,7 @@ from __future__ import annotations
 
 import logging
 
-import pytest
-
 from paperless_rules.engine import extract_with_rule
-
 
 RULE = {
     "match": "Acme",
