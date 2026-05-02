@@ -51,9 +51,11 @@ class PaperlessClient:
         await self.aclose()
 
     async def health(self) -> dict[str, Any]:
-        """Connectivity probe; never raises."""
+        """Connectivity probe; never raises. Uses ``/api/documents/?page_size=1``
+        because ``/api/`` redirects browsers to the schema view, which makes a
+        cheap-looking probe falsely report 'not ok'."""
         try:
-            r = await self._client.get("/api/")
+            r = await self._client.get("/api/documents/", params={"page_size": 1})
         except httpx.HTTPError as e:
             return {"ok": False, "url": self.base_url, "error": str(e)}
         if r.status_code == 200:
