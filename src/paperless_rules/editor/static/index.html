@@ -212,6 +212,8 @@
   .empty {
     padding: 14px; color: var(--ink-soft); font-size: 11px; font-style: italic;
   }
+  .docs-banner.err { color: var(--red); border-bottom-color: var(--red); }
+  .empty.err { color: var(--red); font-style: normal; word-break: break-word; }
 
   /* middle pane */
   .pane-middle {
@@ -386,7 +388,7 @@
     text-transform: uppercase; letter-spacing: 0.6px;
     margin-bottom: 8px; padding-bottom: 8px;
     border-bottom: 1px dashed var(--line); position: sticky; top: 0;
-    background: var(--bg-card);
+    background: var(--bg-card); z-index: 2;
   }
   .ocr-view .ocr-head label { text-transform: none; cursor: pointer; }
   .ocr-body { font-family: var(--mono); }
@@ -1375,6 +1377,7 @@ const state = {
   docsTruncated: false,
   docsPrefilter: "",
   docsPrefilterAuto: false,
+  docsError: null,            // human-readable error from /api/discover or /api/documents
   activeDocId: null,
   activeDocText: "",
   activeDocTitle: "",
@@ -1847,6 +1850,11 @@ function renderRuleList() {
 
 function renderDocList() {
   const el = $("#doc-list");
+  if (state.docsError) {
+    el.innerHTML = `<div class="docs-banner err">paperless connectivity error</div>`
+      + `<div class="empty err">${esc(state.docsError)}</div>`;
+    return;
+  }
   // banner: show what state.docs represents
   let banner = "";
   if (state.docsSource === "discover") {
@@ -2990,21 +2998,22 @@ async function loadDocs() {
         signal,
       });
       if (r.status === 401) { showLoginModal(); return; }
-      const body = await r.json();
+      const body = await r.json().catch(() => ({}));
       if (!r.ok) {
-        $("#doc-list").innerHTML = `<div class="empty">discover: ${esc(body.detail || r.status)}</div>`;
         state.docs = []; state.docsScanned = 0; state.docsTruncated = false;
+        state.docsError = `discover failed (HTTP ${r.status}): ${body.detail || r.statusText || "unknown error"}`;
       } else {
         state.docs = body.matching || [];
         state.docsScanned = body.scanned || 0;
         state.docsTruncated = !!body.truncated_scan;
         state.docsPrefilter = body.prefilter || "";
         state.docsPrefilterAuto = !!body.prefilter_auto;
+        state.docsError = null;
       }
     } catch (e) {
       if (e.name === "AbortError") return;
-      $("#doc-list").innerHTML = `<div class="empty">discover error: ${esc(e.message)}</div>`;
       state.docs = []; state.docsScanned = 0; state.docsTruncated = false;
+      state.docsError = `discover error: ${e.message}`;
     }
   } else {
     state.docsSource = "search";
@@ -3014,12 +3023,18 @@ async function loadDocs() {
         headers: authHeaders, signal,
       });
       if (r.status === 401) { showLoginModal(); return; }
-      const data = await r.json();
-      state.docs = (data.results || []).map(d => ({ id: d.id, title: d.title }));
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        state.docs = [];
+        state.docsError = `paperless search failed (HTTP ${r.status}): ${data.detail || r.statusText || "unknown error"}`;
+      } else {
+        state.docs = (data.results || []).map(d => ({ id: d.id, title: d.title }));
+        state.docsError = null;
+      }
     } catch (e) {
       if (e.name === "AbortError") return;
-      $("#doc-list").innerHTML = `<div class="empty">error: ${esc(e.message)}</div>`;
       state.docs = [];
+      state.docsError = `paperless search error: ${e.message}`;
     }
   }
   renderDocList();
