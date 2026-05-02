@@ -24,7 +24,13 @@ Image: `ghcr.io/mueslipolo/paperless-rules:latest` (multi-arch `amd64` + `arm64`
 
 ## Install
 
-paperless-rules ships as a single container that lives next to your existing paperless-ngx stack and joins the same docker network.
+paperless-rules ships as a single container that lives next to your existing paperless-ngx stack and joins the same container network.
+
+### Container engine
+
+Examples below use `docker compose`. **Podman is supported as a drop-in replacement** — substitute `podman compose` (Podman ≥ 4.4) or `podman-compose` for `docker compose`, `podman build` for `docker build`, and `podman exec` for `docker exec`. The image is a standard OCI image and the bundled [`docker-compose.example.yml`](./docker-compose.example.yml) uses portable compose syntax (no docker-specific extensions), so env vars, volumes, networks, and everything else are identical.
+
+Rootless podman note: bind-mounted host directories (`./paperless-rules/rules`, `./paperless-rules/state`) must be writable by the subuid that maps to container UID 1000. On SELinux hosts (Fedora/RHEL), append `:Z` to the volume mounts.
 
 ### Quick start
 
@@ -44,12 +50,12 @@ paperless-rules ships as a single container that lives next to your existing pap
        - ./paperless-rules/rules:/data/rules
        - ./paperless-rules/state:/data/state
      environment:
-       PAPERLESS_URL: http://paperless:8000     # docker-network DNS for your paperless service
+       PAPERLESS_URL: http://paperless:8000     # container-network DNS for your paperless service
        PAPERLESS_TOKEN: ${PAPERLESS_RULES_TOKEN}
        RUNTIME_MODE: disabled                   # see "Modes" below
        EDITOR_AUTH_REQUIRED: "true"
    ```
-   Adjust `PAPERLESS_URL` to your paperless service's hostname:port within the docker network, and the volume paths to wherever your stack stores persistent data.
+   Adjust `PAPERLESS_URL` to your paperless service's hostname:port within the container network, and the volume paths to wherever your stack stores persistent data.
 3. **Bring it up**:
    ```bash
    docker compose up -d paperless-rules
@@ -71,17 +77,19 @@ Any reverse proxy that already fronts paperless will do (Caddy, Traefik, nginx, 
 - proxy `https://rules.example.com` → the editor on `:8765`
 - forward the `Authorization` header so the editor sees your paperless token
 
-If the proxy reaches the container over the docker network, drop the host port mapping from the compose entirely. Otherwise keep `127.0.0.1:8765:8765` so only the proxy can reach it.
+If the proxy reaches the container over the container network, drop the host port mapping from the compose entirely. Otherwise keep `127.0.0.1:8765:8765` so only the proxy can reach it.
 
 ### Building from source
 
 ```bash
 git clone https://github.com/mueslipolo/paperless-rules.git
 cd paperless-rules
-docker build -t paperless-rules:local .
+podman build -t paperless-rules:local .
 ```
 
-Single-stage Alpine, runs as `paperless` (uid 1000), exposes `/api/health` for healthchecks.
+Or with docker (which still defaults to looking for `Dockerfile`, so the file flag is required): `docker build -f Containerfile -t paperless-rules:local .`
+
+Single-stage Alpine, defined in [`Containerfile`](./Containerfile), runs as `paperless` (uid 1000), exposes `/api/health` for healthchecks.
 
 ---
 
@@ -371,6 +379,8 @@ docker exec paperless-rules paperless-rules backfill --filter 'tag:invoice'
 docker exec paperless-rules paperless-rules backfill --dry-run          # preview
 docker exec paperless-rules paperless-rules apply <doc_id>              # one doc
 ```
+
+Substitute `podman exec` if running under podman.
 
 ---
 
