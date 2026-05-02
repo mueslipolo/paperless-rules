@@ -62,6 +62,11 @@
     color: var(--ink-soft); font-family: var(--mono); font-size: 11px;
     margin-left: 6px; font-weight: 400;
   }
+  .topbar .brand-version {
+    color: var(--ink-soft); font-family: var(--mono); font-size: 10px;
+    margin-left: 6px; font-weight: 400; letter-spacing: 0;
+  }
+  .topbar .brand-version:empty { display: none; }
   .topbar .crumbs { color: var(--ink-soft); }
   .topbar .crumbs b { color: var(--ink); font-weight: 600; }
   .topbar .rule-name-input {
@@ -997,7 +1002,7 @@
 
 <div class="app">
   <div class="topbar">
-    <span class="brand">paperless·rules</span>
+    <span class="brand">paperless·rules<span class="brand-version" id="app-version" title="installed version"></span></span>
     <input type="text" class="rule-name-input" id="rule-name-input"
            placeholder="My rule"
            title="display name — saved to disk as a slugified .yml on the server">
@@ -1747,6 +1752,8 @@ function renderHealth(s) {
     el.classList.add("error");
     el.innerHTML = '<span class="dot"></span>paperless: ' + esc((s.paperless && s.paperless.error) || "down");
   }
+  const v = s.app && s.app.version;
+  if (v) $("#app-version").textContent = "v" + v;
 }
 
 function renderTopbar() {

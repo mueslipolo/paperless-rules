@@ -13,6 +13,7 @@ from fastapi.responses import Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+from paperless_rules import __version__ as __APP_VERSION__
 from paperless_rules.config import Config
 from paperless_rules.editor.auth import make_auth_dep
 from paperless_rules.engine import coerce_value, extract_with_rule, load_rules
@@ -28,8 +29,6 @@ from paperless_rules.rules_io import (
     write_rule,
 )
 from paperless_rules.runtime.apply import ResolutionCache, apply_rules_to_document
-
-__APP_VERSION__ = "0.1.0"
 
 _AUTO_PREFIX_RE = _re.compile(r"^(\d{2})_")
 
